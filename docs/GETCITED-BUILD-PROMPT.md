@@ -69,6 +69,36 @@ web app; it calls the ported pipeline directly (server-side). (Optionally expose
 
 Show a **cost chip** on each (`~cents`, `free tier`, `$$$`) so users choose sensibly.
 
+### `.env.local` reference (the user adds values as phases need them; Phase 1 needs the must-haves)
+```dotenv
+# ── Must-have (Phase 1) ─────────────────────────────────────────────
+ANTHROPIC_API_KEY=
+DATABASE_URL=                     # Supabase Postgres connection string (use the pooler URL)
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=        # server-only — NEVER exposed to the browser
+KEY_ENCRYPTION_SECRET=            # 32-byte base64; encrypts opt-in stored BYO keys (Self Serve)
+
+# ── Strongly recommended (Phase 3 grounding) ───────────────────────
+PERPLEXITY_API_KEY=               # real AI-search + the actual cited pages (plan evidence)
+FIRECRAWL_API_KEY=                # crawl competitor citations / backlinks
+
+# ── Optional (unlock features) ─────────────────────────────────────
+GEMINI_API_KEY=
+GROQ_API_KEY=
+YOUTUBE_API_KEY=                  # find creators mentioning competitors
+GA4_PROPERTY_ID=
+GA4_SERVICE_ACCOUNT_JSON=
+GSC_CLIENT_EMAIL=                 # Search Console → real queries/traffic for the projection
+GSC_PRIVATE_KEY=
+AHREFS_API_TOKEN=                 # premium backlink evidence (BYO)
+
+# ── Tuning ─────────────────────────────────────────────────────────
+PANEL_COST_CAP_USD_PER_RUN=1.00
+```
+At the **start of each phase, tell the user exactly which of these keys that phase needs** so they add them
+just in time.
+
 ---
 
 ## 4. THE CORE DIFFERENTIATOR — the budget→plan scoring engine (`lib/geo/plan.ts`)
@@ -182,7 +212,14 @@ cards, artifact chips, model picker, the 4 starter cards as a grid above the com
 ---
 
 ## 9. Build in PHASES (each: green build + tests for new logic + commit to the private GetCited repo + HANDOFF.md)
-1. **Scaffold + reuse-port + Configure.** Next.js + Tailwind + shadcn; Supabase Auth + schema/migrations; port
+0. **Setup (one-time).** Create `/Users/anandpareek/Documents/Projects/GetCited`; `git init` (private, no
+   remote yet). Scaffold Next.js: `npx create-next-app@latest . --ts --tailwind --app --eslint --src-dir`.
+   Add deps: shadcn/ui (init), `framer-motion`, `recharts`, `lucide-react`, `drizzle-orm drizzle-kit postgres`,
+   `ai @ai-sdk/anthropic @ai-sdk/google @ai-sdk/groq @ai-sdk/perplexity`, `@supabase/supabase-js
+   @supabase/ssr`, `zod`, `exceljs`, `@react-pdf/renderer`. Create a **Supabase** project (enable Auth: email +
+   Google) and a `.env.local` from the reference in §3 (fill the must-haves — ask the user for values). Write
+   `HANDOFF.md`. Confirm `pnpm dev` boots a blank page. Then commit.
+1. **Scaffold app + reuse-port + Configure.** Next.js + Tailwind + shadcn; Supabase Auth + schema/migrations; port
    `lib/geo` pipeline (per-user keys); landing + Configure (fields, ＋, budget, team) + `suggest_queries` +
    `discover_competitors`.
 2. **GEO Assistant: Agent Mode chat + MCP page.** Vercel AI SDK streaming chat calling `lib/geo` tools; tool-call
