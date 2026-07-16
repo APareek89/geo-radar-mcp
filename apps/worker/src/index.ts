@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { config } from "dotenv";
 import { createDb, DrizzleStore, MemoryStore, type GeoStore } from "@geo-radar/db";
-import { startPanelWorker } from "@geo-radar/core";
+import { startPanelWorker, initErrorTracking, logger, captureError } from "@geo-radar/core";
 
 /** Panel worker: consumes queued panel runs from Redis/BullMQ (P6). */
 function loadEnv(): void {
@@ -17,11 +17,12 @@ function loadEnv(): void {
   config();
 }
 
-function main(): void {
+async function main(): Promise<void> {
   loadEnv();
+  await initErrorTracking(); // Sentry when SENTRY_DSN is set; no-op otherwise.
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) {
-    process.stderr.write("[geo-radar-worker] REDIS_URL is required\n");
+    logger.error("worker: REDIS_URL is required");
     process.exit(1);
   }
 
@@ -32,15 +33,18 @@ function main(): void {
   const costCapUsd = Number(process.env.PANEL_COST_CAP_USD_PER_RUN ?? "1") || 1;
   const worker = startPanelWorker(store, redisUrl, { costCapUsd });
 
-  worker.on("completed", (job) => process.stderr.write(`[worker] job ${job.id} completed\n`));
-  worker.on("failed", (job, err) =>
-    process.stderr.write(`[worker] job ${job?.id} failed: ${err.message}\n`),
-  );
-  process.stderr.write("[geo-radar-worker] listening for panel-run jobs\n");
+  worker.on("completed", (job) => logger.info("worker: job completed", { jobId: job.id }));
+  worker.on("failed", (job, err) => {
+    captureError(err, { scope: "worker", jobId: job?.id });
+  });
+  logger.info("worker: listening for panel-run jobs");
 
   const shutdown = () => void worker.close().then(() => process.exit(0));
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 }
 
-main();
+main().catch((err: unknown) => {
+  captureError(err, { scope: "worker", phase: "startup" });
+  process.exit(1);
+});

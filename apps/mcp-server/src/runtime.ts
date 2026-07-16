@@ -1,6 +1,5 @@
 import { createDb, DrizzleStore, MemoryStore, type GeoStore } from "@geo-radar/db";
-import { InProcessPanelRunner, QueuePanelRunner, type PanelRunner } from "@geo-radar/core";
-import { SERVER_NAME } from "@geo-radar/shared";
+import { InProcessPanelRunner, QueuePanelRunner, logger, type PanelRunner } from "@geo-radar/core";
 
 export interface ServerRuntime {
   store: GeoStore;
@@ -20,9 +19,7 @@ export function buildRuntime(): ServerRuntime {
   let store: GeoStore;
   if (useMemory) {
     store = new MemoryStore();
-    process.stderr.write(
-      `[${SERVER_NAME}] using in-memory store (no DATABASE_URL or GEO_STORE=memory) — data is not persisted\n`,
-    );
+    logger.warn("using in-memory store (no DATABASE_URL or GEO_STORE=memory) — data is not persisted");
   } else {
     store = new DrizzleStore(createDb(process.env.DATABASE_URL!));
   }

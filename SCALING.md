@@ -40,8 +40,9 @@ Panel runs are the **bursty, slow** work (many LLM calls per run). Today the run
 ## Observability (P8)
 
 - **`/healthz`** — liveness probe (Render `healthCheckPath`). ✅ implemented.
-- **Structured stderr logs** — the server logs readiness/errors to stderr (stdout is reserved for the stdio protocol). ✅ implemented.
-- **OpenTelemetry / Sentry** — env vars are **reserved** (`OTEL_EXPORTER_OTLP_ENDPOINT`, `SENTRY_DSN`) and the intended trace path is `request → enqueue → worker → LLM call`. ⏳ **the init code is a follow-up** — not yet wired. (Flagged by the FMEA as PRD/reality drift; tracked in `docs/FMEA-P3-P12.md`.)
+- **Structured JSON logs** — `logger` (`packages/core/src/logger.ts`) emits one JSON object per line to **stderr** (`{ts, level, msg, ...fields}`; stdout is reserved for the stdio JSON-RPC protocol). Server startup, OAuth mode, and worker job lifecycle all log through it. ✅ implemented.
+- **Sentry error capture** — `captureError(err, context)` logs a structured error line **and** forwards to Sentry. `initErrorTracking()` (called from both app entrypoints) wires Sentry **only when `SENTRY_DSN` is set** (`@sentry/node` is dynamically imported; DSN-less deploys pay nothing and can't crash on init). Wired into the `/mcp` error handler and the worker `failed`/startup paths. Optional `SENTRY_TRACES_SAMPLE_RATE` (default 0) enables tracing. ✅ implemented.
+- **OpenTelemetry** — `OTEL_EXPORTER_OTLP_ENDPOINT` remains reserved for a future trace path (`request → enqueue → worker → LLM call`); Sentry covers error capture today. ⏳ follow-up.
 
 ## Load testing
 

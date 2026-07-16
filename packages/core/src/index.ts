@@ -1,5 +1,13 @@
 export { PanelRunError } from "./errors";
 export {
+  logger,
+  captureError,
+  setErrorSink,
+  type LogLevel,
+  type LogFields,
+} from "./logger";
+export { initErrorTracking } from "./observability";
+export {
   PANELIST_MODELS,
   MODEL_PRICING,
   PARSER_MODEL_ID,

@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SERVER_NAME, SERVER_VERSION } from "@geo-radar/shared";
+import { captureError, logger } from "@geo-radar/core";
 import { createServer } from "./server";
 import { registerDashboard } from "./dashboard";
 import { requireAuth, protectedResourceMetadata } from "./auth";
@@ -34,7 +35,7 @@ export function startHttpServer(runtime: ServerRuntime, port: number): void {
   if (oauthProxy) {
     // Serves /authorize, /token, /register AND both well-known metadata docs.
     app.use(oauthProxy);
-    process.stderr.write(`[${SERVER_NAME}] OAuth: proxy mode (same-origin AS → WorkOS)\n`);
+    logger.info("oauth: proxy mode (same-origin AS → WorkOS)");
   } else {
     // RFC 9728 protected-resource metadata (points clients off to the external AS).
     app.get("/.well-known/oauth-protected-resource", (req: Request, res: Response) => {
@@ -57,7 +58,7 @@ export function startHttpServer(runtime: ServerRuntime, port: number): void {
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
-      process.stderr.write(`[${SERVER_NAME}] /mcp error: ${String(err)}\n`);
+      captureError(err, { route: "/mcp" });
       if (!res.headersSent) {
         res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null });
       }
@@ -70,8 +71,11 @@ export function startHttpServer(runtime: ServerRuntime, port: number): void {
   app.delete("/mcp", methodNotAllowed);
 
   app.listen(port, () => {
-    process.stderr.write(
-      `[${SERVER_NAME} v${SERVER_VERSION}] HTTP on :${port} (dashboard /, POST /mcp, GET /healthz)\n`,
-    );
+    logger.info("http server listening", {
+      server: SERVER_NAME,
+      version: SERVER_VERSION,
+      port,
+      routes: ["/", "POST /mcp", "/healthz"],
+    });
   });
 }

@@ -23,6 +23,7 @@
     "@geo-radar/db": "workspace:*",
     "@geo-radar/shared": "workspace:*",
     "@google-analytics/data": "^4.7.0",
+    "@sentry/node": "^10.65.0",
     "ai": "^7.0.28",
     "bullmq": "^5.34.0",
     "ioredis": "^5.4.1",

@@ -1,5 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SERVER_NAME, SERVER_VERSION } from "@geo-radar/shared";
+import { initErrorTracking, logger } from "@geo-radar/core";
 import { loadEnv } from "./env";
 import { createServer } from "./server";
 import { buildRuntime } from "./runtime";
@@ -14,6 +15,7 @@ import { startHttpServer } from "./http";
  */
 async function main(): Promise<void> {
   loadEnv();
+  await initErrorTracking(); // Sentry when SENTRY_DSN is set; no-op otherwise.
   const runtime = buildRuntime();
 
   if (process.env.MCP_TRANSPORT === "http") {
