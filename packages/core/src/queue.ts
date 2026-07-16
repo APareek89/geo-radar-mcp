@@ -8,6 +8,7 @@ import {
   type PanelRunner,
   type RunnerOptions,
 } from "./runner";
+import { PanelRunError } from "./errors";
 import { createProviderRateLimiter } from "./rate-limit";
 import { logger } from "./logger";
 
@@ -50,18 +51,25 @@ export class QueuePanelRunner implements PanelRunner {
     const { prompts, panel } = planRun(input);
     const { runId, brandId } = await this.store.beginRun(beginRunParams(input, panel));
 
-    await this.queue.add(
-      "measure",
-      { input, runId, brandId },
-      {
-        // A panel run makes many billed LLM calls and is NOT idempotent — auto-retry
-        // would re-run the whole pipeline and multiply spend (FMEA P0). A failed run
-        // is marked failed and surfaced; the caller decides whether to re-invoke.
-        attempts: 1,
-        removeOnComplete: 1000,
-        removeOnFail: 5000, // dead-letter inspection window
-      },
-    );
+    try {
+      await this.queue.add(
+        "measure",
+        { input, runId, brandId },
+        {
+          // A panel run makes many billed LLM calls and is NOT idempotent — auto-retry
+          // would re-run the whole pipeline and multiply spend (FMEA P0). A failed run
+          // is marked failed and surfaced; the caller decides whether to re-invoke.
+          attempts: 1,
+          removeOnComplete: 1000,
+          removeOnFail: 5000, // dead-letter inspection window
+        },
+      );
+    } catch (err) {
+      // Enqueue failed (e.g. Redis down) — don't leave the row stuck "running".
+      const message = err instanceof Error ? err.message : String(err);
+      await this.store.failRun(runId, `failed to enqueue: ${message}`);
+      throw new PanelRunError(`Failed to enqueue panel run: ${message}`, "internal");
+    }
     logger.info("panel run queued", { report_id: runId, panel });
 
     return {
