@@ -34,7 +34,7 @@ Panel runs are the **bursty, slow** work (many LLM calls per run). Today the run
 
 - **Idempotency** — job id derived from `(brand, prompt_set, panel, date)` so retries don't double-charge.
 - **Dead-letter queue** — jobs that exhaust retries land in a DLQ for inspection, not silent loss.
-- **Per-key rate limiting** — Redis token bucket per provider key to stay under free-tier limits.
+- **Per-provider rate limiting** — Redis token bucket keyed by provider (anthropic/google/groq/perplexity), shared across web + worker instances, applied before every real upstream call (`packages/core/src/rate-limit.ts`). Active when `REDIS_URL` is set; disable with `PROVIDER_RATE_LIMIT=off`. Tune `PROVIDER_RATE_LIMIT_RPS` (default 5), `_BURST` (10), `_MAX_WAIT_MS` (30000). Fails **open** on Redis errors so a limiter outage never blocks work. ✅ implemented.
 - **Cost caps** — `CostMeter` aborts a run before exceeding `PANEL_COST_CAP_USD_PER_RUN`; a global daily cap lives in Redis.
 
 ## Observability (P8)

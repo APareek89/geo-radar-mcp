@@ -66,3 +66,11 @@ export function hasAnthropicKey(): boolean {
 export function hasPanelistKey(id: PanelistId): boolean {
   return Boolean(process.env[PANELIST_MODELS[id].envKey]);
 }
+
+/** The upstream provider a panelist calls (rate-limit bucket key). */
+export function providerFor(id: PanelistId): Provider {
+  return PANELIST_MODELS[id].provider;
+}
+
+/** Provider the answer parser calls (Claude Haiku). */
+export const PARSER_PROVIDER: Provider = "anthropic";

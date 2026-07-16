@@ -31,6 +31,14 @@ export { computeShareOfVoice, type ScoringInput, type ScoringResult } from "./sc
 export { CostMeter } from "./cost";
 export { BUILTIN_PROMPT_SETS, resolvePromptSet, type PromptSet } from "./prompt-library";
 export { InProcessPanelRunner, type PanelRunner, type RunnerOptions } from "./runner";
+export {
+  createProviderRateLimiter,
+  tokenBucketStep,
+  NOOP_RATE_LIMITER,
+  type ProviderRateLimiter,
+  type TokenBucketConfig,
+  type TokenBucketState,
+} from "./rate-limit";
 export { buildReport } from "./report";
 export { computeCitations, computeSentiment, type AnalysisAnswer } from "./analysis";
 export {

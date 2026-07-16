@@ -2,6 +2,7 @@ import { Queue, QueueEvents, Worker, type ConnectionOptions } from "bullmq";
 import type { MeasureShareOfVoiceInput, MeasureShareOfVoiceOutput } from "@geo-radar/shared";
 import type { GeoStore } from "@geo-radar/db";
 import { InProcessPanelRunner, type PanelRunner, type RunnerOptions } from "./runner";
+import { createProviderRateLimiter } from "./rate-limit";
 
 // BullMQ 5 forbids ":" in queue names (it's the Redis key separator) — a colon here
 // crashes the worker on boot with "Queue name cannot contain :". Use a hyphen.
@@ -58,7 +59,10 @@ export function startPanelWorker(
   opts: RunnerOptions,
   concurrency = 4,
 ): Worker<MeasureShareOfVoiceInput, MeasureShareOfVoiceOutput> {
-  const runner = new InProcessPanelRunner(store, opts);
+  const runner = new InProcessPanelRunner(store, {
+    rateLimiter: createProviderRateLimiter(),
+    ...opts,
+  });
   return new Worker<MeasureShareOfVoiceInput, MeasureShareOfVoiceOutput>(
     PANEL_QUEUE_NAME,
     async (job) => runner.run(job.data),

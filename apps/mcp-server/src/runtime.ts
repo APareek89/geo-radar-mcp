@@ -1,5 +1,11 @@
 import { createDb, DrizzleStore, MemoryStore, type GeoStore } from "@geo-radar/db";
-import { InProcessPanelRunner, QueuePanelRunner, logger, type PanelRunner } from "@geo-radar/core";
+import {
+  InProcessPanelRunner,
+  QueuePanelRunner,
+  createProviderRateLimiter,
+  logger,
+  type PanelRunner,
+} from "@geo-radar/core";
 
 export interface ServerRuntime {
   store: GeoStore;
@@ -27,10 +33,12 @@ export function buildRuntime(): ServerRuntime {
   const costCapUsd = Number(process.env.PANEL_COST_CAP_USD_PER_RUN ?? "1") || 1;
 
   // PANEL_RUNNER=queue offloads runs to BullMQ workers (P6); default is in-process.
+  // The in-process runner rate-limits real provider calls; the queue variant runs the
+  // pipeline in the worker, which builds its own limiter there.
   const runner: PanelRunner =
     process.env.PANEL_RUNNER === "queue" && process.env.REDIS_URL
       ? new QueuePanelRunner(process.env.REDIS_URL)
-      : new InProcessPanelRunner(store, { costCapUsd });
+      : new InProcessPanelRunner(store, { costCapUsd, rateLimiter: createProviderRateLimiter() });
 
   return { store, runner };
 }

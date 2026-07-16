@@ -11,7 +11,10 @@ import {
   hasAnthropicKey,
   hasPanelistKey,
   PARSER_MODEL_ID,
+  PARSER_PROVIDER,
+  providerFor,
 } from "./models";
+import { NOOP_RATE_LIMITER, type ProviderRateLimiter } from "./rate-limit";
 import {
   createRealPanelist,
   createMockPanelist,
@@ -36,6 +39,8 @@ export interface RunnerOptions {
   forceMock?: boolean;
   /** Override the per-call cost estimate (USD). Defaults to 0 for mock, ~$0.01 for real. */
   estimatePerCallUsd?: number;
+  /** Per-provider rate limiter for real calls. Defaults to a no-op (no Redis / dev). */
+  rateLimiter?: ProviderRateLimiter;
 }
 
 /**
@@ -84,6 +89,7 @@ export class InProcessPanelRunner implements PanelRunner {
           : createRealPanelist(id as PanelistId),
       );
       const parser: Parser = parserMock ? createDeterministicParser() : createAnthropicParser();
+      const limiter = this.opts.rateLimiter ?? NOOP_RATE_LIMITER;
       const meter = new CostMeter(this.opts.costCapUsd);
       const estimatePerCall =
         this.opts.estimatePerCallUsd ?? (anyRealCall ? REAL_CALL_COST_ESTIMATE_USD : 0);
@@ -101,9 +107,12 @@ export class InProcessPanelRunner implements PanelRunner {
               );
             }
 
+            // Per-provider rate limit before each REAL upstream call (no-op for mock).
+            if (!isMock(panelist.id)) await limiter.acquire(providerFor(panelist.id as PanelistId));
             const answer = await this.callPanelist(panelist, prompt);
             meter.add(answer.model, answer.usage);
 
+            if (!parserMock) await limiter.acquire(PARSER_PROVIDER);
             const parsed = await this.callParser(parser, answer.text, input);
             meter.add(PARSER_MODEL_ID, parsed.usage);
 
