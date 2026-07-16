@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { MemoryStore } from "@geo-radar/db";
-import { InProcessPanelRunner } from "@geo-radar/core";
+import { InProcessPanelRunner, ALLOW_ALL_QUOTA } from "@geo-radar/core";
 import { createServer } from "../server";
 import type { ServerRuntime } from "../runtime";
 
@@ -11,6 +11,7 @@ async function connect() {
   const runtime: ServerRuntime = {
     store,
     runner: new InProcessPanelRunner(store, { costCapUsd: 1, forceMock: true }),
+    quota: ALLOW_ALL_QUOTA,
   };
   const server = createServer(runtime);
   const [ct, st] = InMemoryTransport.createLinkedPair();

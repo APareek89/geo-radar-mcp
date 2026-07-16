@@ -35,7 +35,8 @@ Panel runs are the **bursty, slow** work (many LLM calls per run). The runner si
 - **Idempotency** — job id derived from `(brand, prompt_set, panel, date)` so retries don't double-charge.
 - **Dead-letter queue** — jobs that exhaust retries land in a DLQ for inspection, not silent loss.
 - **Per-provider rate limiting** — Redis token bucket keyed by provider (anthropic/google/groq/perplexity), shared across web + worker instances, applied before every real upstream call (`packages/core/src/rate-limit.ts`). Active when `REDIS_URL` is set; disable with `PROVIDER_RATE_LIMIT=off`. Tune `PROVIDER_RATE_LIMIT_RPS` (default 5), `_BURST` (10), `_MAX_WAIT_MS` (30000). Fails **open** on Redis errors so a limiter outage never blocks work. ✅ implemented.
-- **Cost caps** — `CostMeter` aborts a run before exceeding `PANEL_COST_CAP_USD_PER_RUN`; a global daily cap lives in Redis.
+- **Cost caps** — `CostMeter` aborts a run before exceeding `PANEL_COST_CAP_USD_PER_RUN`.
+- **Per-user daily quotas** (public deploys) — `packages/core/src/quota.ts`. Opt-in with `QUOTA_ENABLED=true` (+ `REDIS_URL`): each authenticated user (the token's `sub`) gets `QUOTA_PER_USER_DAILY` runs/day (default 10), with a `QUOTA_GLOBAL_DAILY` ceiling for everyone (default 200); `QUOTA_EXEMPT_USERS` (csv) skips the owner. Enforced in `measure_share_of_voice` before any spend; **fails open** (the per-run cost cap is the backstop). Off by default, so single-owner deploys are unaffected. ✅ implemented.
 
 ## Observability (P8)
 

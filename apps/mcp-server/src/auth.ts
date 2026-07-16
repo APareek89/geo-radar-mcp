@@ -135,8 +135,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
+  // Attach the resolved AuthInfo to req.auth — the MCP transport forwards it to tool
+  // handlers as `extra.authInfo` (the per-user id used for quotas).
+  const attach = (info: AuthInfo): void => {
+    (req as Request & { auth?: AuthInfo }).auth = info;
+  };
+
   // 1. Static API-key path.
   if (process.env.MCP_API_KEY && token === process.env.MCP_API_KEY) {
+    attach({ token, clientId: "api-key", scopes: [], extra: { sub: "api-key" } });
     next();
     return;
   }
@@ -145,12 +152,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   //    delegated token against the issuer's JWKS (iss/exp/aud).
   try {
     if (process.env.OAUTH_MODE === "selfhosted") {
-      await verifySelfIssuedToken(token);
+      attach(await verifySelfIssuedToken(token));
       next();
       return;
     }
     if (issuerUrl()) {
-      await verifyAccessToken(token);
+      attach(await verifyAccessToken(token));
       next();
       return;
     }

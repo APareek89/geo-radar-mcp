@@ -39,6 +39,13 @@ export {
   type TokenBucketConfig,
   type TokenBucketState,
 } from "./rate-limit";
+export {
+  createQuotaEnforcer,
+  quotaDeniedMessage,
+  ALLOW_ALL_QUOTA,
+  type QuotaEnforcer,
+  type QuotaResult,
+} from "./quota";
 export { buildReport } from "./report";
 export { computeCitations, computeSentiment, type AnalysisAnswer } from "./analysis";
 export {

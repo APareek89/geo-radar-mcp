@@ -3,13 +3,16 @@ import {
   InProcessPanelRunner,
   QueuePanelRunner,
   createProviderRateLimiter,
+  createQuotaEnforcer,
   logger,
   type PanelRunner,
+  type QuotaEnforcer,
 } from "@geo-radar/core";
 
 export interface ServerRuntime {
   store: GeoStore;
   runner: PanelRunner;
+  quota: QuotaEnforcer;
 }
 
 /**
@@ -40,5 +43,5 @@ export function buildRuntime(): ServerRuntime {
       ? new QueuePanelRunner(process.env.REDIS_URL, store)
       : new InProcessPanelRunner(store, { costCapUsd, rateLimiter: createProviderRateLimiter() });
 
-  return { store, runner };
+  return { store, runner, quota: createQuotaEnforcer() };
 }

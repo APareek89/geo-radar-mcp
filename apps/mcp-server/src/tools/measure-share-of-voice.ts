@@ -4,14 +4,31 @@ import {
   MeasureShareOfVoiceOutputSchema,
   type MeasureShareOfVoiceOutput,
 } from "@geo-radar/shared";
-import { PanelRunError, type PanelRunner } from "@geo-radar/core";
+import {
+  PanelRunError,
+  quotaDeniedMessage,
+  ALLOW_ALL_QUOTA,
+  type PanelRunner,
+  type QuotaEnforcer,
+} from "@geo-radar/core";
+
+/** The per-user quota key from the validated bearer token (Stytch/self-issued `sub`). */
+export function quotaUserId(extra: { authInfo?: { clientId?: string; extra?: Record<string, unknown> } }): string {
+  const info = extra.authInfo;
+  return String(info?.extra?.sub ?? info?.clientId ?? "anonymous");
+}
 
 /**
  * `measure_share_of_voice` — ask a panel of LLMs a bank of buyer-intent prompts,
  * parse brand mentions, compute share-of-voice, persist, and return a `report_id`
  * plus a summary. Heavy work runs in-process for v1 (queued to a worker at P6).
+ * Enforces the per-user daily quota (no-op unless QUOTA_ENABLED) before spending.
  */
-export function registerMeasureShareOfVoiceTool(server: McpServer, runner: PanelRunner): void {
+export function registerMeasureShareOfVoiceTool(
+  server: McpServer,
+  runner: PanelRunner,
+  quota: QuotaEnforcer = ALLOW_ALL_QUOTA,
+): void {
   server.registerTool(
     "measure_share_of_voice",
     {
@@ -23,7 +40,12 @@ export function registerMeasureShareOfVoiceTool(server: McpServer, runner: Panel
       inputSchema: MeasureShareOfVoiceInputObject.shape,
       outputSchema: MeasureShareOfVoiceOutputSchema.shape,
     },
-    async (args) => {
+    async (args, extra) => {
+      // Cost guard (public deploys): check + consume the caller's daily quota first.
+      const verdict = await quota.check(quotaUserId(extra));
+      if (!verdict.allowed) {
+        return { content: [{ type: "text", text: quotaDeniedMessage(verdict) }], isError: true };
+      }
       try {
         const report = await runner.run(args);
         return {

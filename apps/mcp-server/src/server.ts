@@ -26,7 +26,7 @@ export function createServer(runtime?: ServerRuntime): McpServer {
 
   if (runtime) {
     // P2
-    registerMeasureShareOfVoiceTool(server, runtime.runner);
+    registerMeasureShareOfVoiceTool(server, runtime.runner, runtime.quota);
     registerGetReportTool(server, runtime.store);
     // P3/P4 analysis tools
     registerAnalysisTools(server, runtime);

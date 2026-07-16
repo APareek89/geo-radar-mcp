@@ -2,14 +2,14 @@ import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { MemoryStore } from "@geo-radar/db";
-import { InProcessPanelRunner } from "@geo-radar/core";
+import { InProcessPanelRunner, ALLOW_ALL_QUOTA, type QuotaEnforcer } from "@geo-radar/core";
 import { createServer } from "../server";
 import type { ServerRuntime } from "../runtime";
 
-function mockRuntime(): ServerRuntime {
+function mockRuntime(quota: QuotaEnforcer = ALLOW_ALL_QUOTA): ServerRuntime {
   const store = new MemoryStore();
   const runner = new InProcessPanelRunner(store, { costCapUsd: 1, forceMock: true });
-  return { store, runner };
+  return { store, runner, quota };
 }
 
 async function connect(runtime: ServerRuntime) {
@@ -76,6 +76,22 @@ describe("measure_share_of_voice + get_report (mock pipeline)", () => {
     });
     expect(res.isError).toBeFalsy();
     expect((res.structuredContent as { answer_count: number }).answer_count).toBe(2);
+    await client.close();
+    await server.close();
+  });
+
+  it("blocks the run (no spend) when the per-user quota is exhausted", async () => {
+    const denyQuota = {
+      check: async () => ({ allowed: false, reason: "user" as const, remainingUser: 0 }),
+      close: async () => {},
+    };
+    const { server, client } = await connect(mockRuntime(denyQuota));
+    const res = await client.callTool({
+      name: "measure_share_of_voice",
+      arguments: { brand: "A", competitors: ["B"], prompts: ["x"], panel: ["haiku"] },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/daily run limit/i);
     await client.close();
     await server.close();
   });
