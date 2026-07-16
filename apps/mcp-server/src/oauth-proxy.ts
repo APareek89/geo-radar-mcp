@@ -1,9 +1,45 @@
 import type { RequestHandler } from "express";
-import { ProxyOAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js";
+import {
+  ProxyOAuthServerProvider,
+  type ProxyEndpoints,
+} from "@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js";
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { SERVER_NAME } from "@geo-radar/shared";
+import { logger } from "@geo-radar/core";
 import { audienceUrl, issuerUrl, verifyAccessToken } from "./auth";
+
+/**
+ * Discover the upstream IdP's OAuth endpoints via RFC 8414 metadata, so proxy mode
+ * works with ANY provider (Stytch, Auth0, WorkOS, …) from just its issuer URL. Falls
+ * back to the WorkOS-style `/oauth2/*` paths if discovery fails.
+ */
+async function discoverUpstreamEndpoints(issuer: string): Promise<ProxyEndpoints> {
+  const fallback: ProxyEndpoints = {
+    authorizationUrl: `${issuer}/oauth2/authorize`,
+    tokenUrl: `${issuer}/oauth2/token`,
+    registrationUrl: `${issuer}/oauth2/register`,
+  };
+  try {
+    const res = await fetch(`${issuer}/.well-known/oauth-authorization-server`);
+    if (res.ok) {
+      const m = (await res.json()) as {
+        authorization_endpoint?: string;
+        token_endpoint?: string;
+        registration_endpoint?: string;
+      };
+      if (m.authorization_endpoint && m.token_endpoint) {
+        return {
+          authorizationUrl: m.authorization_endpoint,
+          tokenUrl: m.token_endpoint,
+          registrationUrl: m.registration_endpoint ?? fallback.registrationUrl,
+        };
+      }
+    }
+  } catch {
+    /* use fallback */
+  }
+  return fallback;
+}
 
 /**
  * OAuth PROXY mode (`OAUTH_MODE=proxy`) — makes THIS server the OAuth authorization
@@ -51,27 +87,27 @@ class CachingProxyProvider extends ProxyOAuthServerProvider {
  * `/register` (proxied to WorkOS) AND the protected-resource metadata. Returns null
  * when proxy mode is off or not fully configured (caller falls back to delegation).
  */
-export function createOAuthProxyRouter(): RequestHandler | null {
+export async function createOAuthProxyRouter(): Promise<RequestHandler | null> {
   if (process.env.OAUTH_MODE !== "proxy") return null;
 
-  const upstream = issuerUrl(); // WorkOS AuthKit (the real login/identity)
+  const upstream = issuerUrl(); // the upstream IdP (WorkOS / Stytch / Auth0 …)
   const publicUrl = audienceUrl(); // our public origin — becomes the issuer Claude sees
   if (!upstream || !publicUrl) {
-    process.stderr.write(
-      `[${SERVER_NAME}] OAUTH_MODE=proxy but OAUTH_ISSUER/OAUTH_AUDIENCE missing — proxy disabled\n`,
-    );
+    logger.warn("oauth proxy: OAUTH_MODE=proxy but OAUTH_ISSUER/OAUTH_AUDIENCE missing — disabled");
     return null;
   }
 
+  const endpoints = await discoverUpstreamEndpoints(upstream);
+  logger.info("oauth proxy: upstream endpoints resolved", {
+    upstream,
+    authorizationUrl: endpoints.authorizationUrl,
+  });
+
   const provider = new CachingProxyProvider({
-    endpoints: {
-      authorizationUrl: `${upstream}/oauth2/authorize`,
-      tokenUrl: `${upstream}/oauth2/token`,
-      registrationUrl: `${upstream}/oauth2/register`,
-    },
+    endpoints,
     verifyAccessToken,
     // Reads are served from the cache above; this upstream fallback stays empty
-    // because WorkOS exposes no client-lookup endpoint.
+    // because most IdPs expose no client-lookup endpoint.
     getClient: async () => undefined,
   });
 

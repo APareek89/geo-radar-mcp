@@ -20,7 +20,7 @@ async function main(): Promise<void> {
 
   if (process.env.MCP_TRANSPORT === "http") {
     const port = Number(process.env.PORT ?? "8080") || 8080;
-    startHttpServer(runtime, port);
+    await startHttpServer(runtime, port);
     return;
   }
 

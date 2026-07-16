@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createOAuthProxyRouter } from "./oauth-proxy";
 
 /**
@@ -29,22 +29,35 @@ describe("createOAuthProxyRouter", () => {
     }
   });
 
-  it("is OFF by default (null when OAUTH_MODE is unset) — delegation stays the default", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("is OFF by default (null when OAUTH_MODE is unset) — delegation stays the default", async () => {
     process.env.OAUTH_ISSUER = "qualified-odyssey-45-staging.authkit.app";
     process.env.OAUTH_AUDIENCE = "https://geo-radar-mcp.onrender.com";
-    expect(createOAuthProxyRouter()).toBeNull();
+    expect(await createOAuthProxyRouter()).toBeNull();
   });
 
-  it("stays null in proxy mode if issuer/audience are missing (won't half-configure)", () => {
+  it("stays null in proxy mode if issuer/audience are missing (won't half-configure)", async () => {
     process.env.OAUTH_MODE = "proxy";
-    expect(createOAuthProxyRouter()).toBeNull();
+    expect(await createOAuthProxyRouter()).toBeNull();
   });
 
-  it("returns a mounted router when proxy mode is fully configured", () => {
+  it("returns a mounted router when proxy mode is fully configured (endpoints discovered)", async () => {
     process.env.OAUTH_MODE = "proxy";
-    process.env.OAUTH_ISSUER = "qualified-odyssey-45-staging.authkit.app";
+    process.env.OAUTH_ISSUER = "id.example.com";
     process.env.OAUTH_AUDIENCE = "https://geo-radar-mcp.onrender.com/";
-    const router = createOAuthProxyRouter();
+    // Any IdP: discovery returns its endpoints from RFC 8414 metadata.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authorization_endpoint: "https://id.example.com/oauth2/authorize",
+          token_endpoint: "https://id.example.com/oauth2/token",
+          registration_endpoint: "https://id.example.com/oauth2/register",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const router = await createOAuthProxyRouter();
     expect(typeof router).toBe("function");
   });
 });

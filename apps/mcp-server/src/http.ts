@@ -14,7 +14,7 @@ import type { ServerRuntime } from "./runtime";
  * server+transport, so the tier is stateless and scales by instance count.
  * Auth is enforced by ./auth (bearer API key or OAuth JWT w/ JWKS verification).
  */
-export function startHttpServer(runtime: ServerRuntime, port: number): void {
+export async function startHttpServer(runtime: ServerRuntime, port: number): Promise<void> {
   const app = express();
   // Behind Render/any TLS-terminating proxy, trust X-Forwarded-* so req.protocol is
   // "https" — the OAuth metadata + resource URLs must be https or clients reject them.
@@ -35,7 +35,7 @@ export function startHttpServer(runtime: ServerRuntime, port: number): void {
   //   proxy      — same-origin AS forwarding to WorkOS.
   //   (default)  — resource-server-only: advertise the external AS directly.
   const selfOauth = createSelfHostedOAuthRouter();
-  const oauthProxy = selfOauth ? null : createOAuthProxyRouter();
+  const oauthProxy = selfOauth ? null : await createOAuthProxyRouter();
   if (selfOauth) {
     app.use("/authorize", selfHostedLoginGate); // gate login before the AS handler
     app.use(selfOauth);

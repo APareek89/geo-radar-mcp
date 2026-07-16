@@ -25,6 +25,15 @@ WorkOS serves everything else (`/oauth2/authorize|token|jwks|register` + auth-se
    - `OAUTH_AUDIENCE` = that Render URL
    Then redeploy. Migrate the DB once: Render shell → `pnpm --filter @geo-radar/db db:migrate`.
 
+## 3c. PUBLIC multi-user (anyone signs up) — Stytch + per-user quotas
+For a public server where users self-register (each spends the owner's LLM budget), use **proxy mode against Stytch** (free, MCP-native, supports DCR) + the built-in quota:
+
+1. **Stytch** → create a project → enable **Connected Apps** → note the **Authorization server / issuer URL** (its `.well-known/oauth-authorization-server` lists `authorize`/`token`/`register`; the proxy auto-discovers these, so you only need the issuer).
+2. Render env:
+   - `OAUTH_MODE=proxy`, `OAUTH_ISSUER=<Stytch issuer>`, `OAUTH_AUDIENCE=https://<svc>.onrender.com` (no slash)
+   - `QUOTA_ENABLED=true`, `QUOTA_PER_USER_DAILY` (e.g. 10), `QUOTA_GLOBAL_DAILY` (e.g. 200), `QUOTA_EXEMPT_USERS=<your-user-id>` (optional)
+3. Each Stytch-issued token carries a per-user `sub` → quotas are enforced per user in `measure_share_of_voice` (fails open; the per-run cost cap is the backstop). Any RFC 8414 IdP works (Auth0 too) — the proxy discovers endpoints from the issuer.
+
 ## 3. Secrets to set in Render (dashboard → Environment)
 | Key | Value | Notes |
 |---|---|---|
