@@ -12,6 +12,11 @@
 **Watch for later:** <the symptom that means this is happening again>
 -->
 
+## 2026-07-16 — Fire-and-forget queue: "queued" response vs "running" DB row
+**What happened:** Made `QueuePanelRunner` fire-and-forget — it now returns `{status:"queued", report_id}` immediately and a worker finishes the run. To return a `report_id` before the worker starts, the WEB tier pre-creates the run row (`beginRun`) and passes `{runId, brandId}` in the job; the worker calls `runner.run(input, existingRun)` which skips `beginRun` and finishes THAT row.
+**Gotcha:** `store.beginRun()` sets status **`running`** (both Memory + Drizzle), not `queued`. So the `measure_share_of_voice` *response* says `status:"queued"` but `get_report(report_id)` shows `running` until the worker completes it. Both are non-terminal — the client polls until `completed`/`failed`. Don't "fix" this by asserting `queued` in tests; assert `!== "completed"`. Changing beginRun to write `queued` would need a store-API/status change (out of scope).
+**Watch for later:** the job payload changed from bare `input` to `{input, runId, brandId}` — any code reading `job.data` must use `job.data.input`. `QueuePanelRunner` now needs the `store` (constructor arg) — `new QueuePanelRunner(REDIS_URL, store)`.
+
 ## 2026-07-16 — After the proxy fix, Connect 504s — WorkOS *staging* is too slow (not Render)
 **What happened:** With `OAUTH_MODE=proxy`, the flow got all the way to `…authkit.app/api/callback?code=…&state=…` (so the `state` bug is SOLVED — code + state round-tripped), then failed with a **Cloudflare 504 Gateway time-out** whose failing Host was `qualified-odyssey-45-staging.authkit.app` (Render is not in this hop). Probed WorkOS staging directly: `/oauth2/authorize` took **4–50s** per call, one returned **504 at 60s**, and even `/oauth2/jwks` (13s) and AS metadata (29s) were pathologically slow. Earlier in the session staging also gave a transient 504 on `/oauth2/register`.
 **Root cause:** WorkOS **staging** AuthKit environments are throttled/cold — not built for a real interactive login; the heavier `/api/callback` step exceeds Cloudflare's gateway timeout.
