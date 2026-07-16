@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import type { Sentiment } from "@geo-radar/shared";
 import type { DbHandle } from "./client";
 import { answers, brands, competitors, hallucinations, panelRuns, sovHistory } from "./schema";
@@ -25,29 +25,25 @@ export class DrizzleStore implements GeoStore {
 
   async beginRun(params: BeginRunParams): Promise<BeginRunResult> {
     const { db } = this;
-    const owner = params.brand.owner ?? null;
+    const owner = params.brand.owner ?? "";
+    const where = and(eq(brands.name, params.brand.name), eq(brands.owner, owner));
 
     // Find-or-create the brand so sov_history accumulates against a stable id.
-    const found = await db
-      .select()
-      .from(brands)
-      .where(
-        and(
-          eq(brands.name, params.brand.name),
-          owner === null ? isNull(brands.owner) : eq(brands.owner, owner),
-        ),
-      )
-      .limit(1);
-
+    // Race-safe: rely on the unique (name, owner) index — a concurrent insert
+    // hits onConflictDoNothing, then we re-select the winner.
     let brandId: string;
+    const found = await db.select({ id: brands.id }).from(brands).where(where).limit(1);
     if (found[0]) {
       brandId = found[0].id;
     } else {
       const inserted = await db
         .insert(brands)
         .values({ name: params.brand.name, domains: params.brand.domains ?? [], owner })
+        .onConflictDoNothing()
         .returning({ id: brands.id });
-      brandId = inserted[0]!.id;
+      brandId =
+        inserted[0]?.id ??
+        (await db.select({ id: brands.id }).from(brands).where(where).limit(1))[0]!.id;
     }
 
     // Upsert competitors by (brandId, name).

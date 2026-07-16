@@ -1,17 +1,25 @@
-import { pgTable, uuid, text, timestamp, real, date } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, real, date, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
  * Postgres schema (Drizzle). Mirrors PRD §7. `text().array()` maps to Postgres
  * `text[]`, which cleanly holds the domains[]/mentions[]/cited_domains[] columns.
  */
 
-export const brands = pgTable("brands", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  domains: text("domains").array().notNull().default([]),
-  owner: text("owner"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const brands = pgTable(
+  "brands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    domains: text("domains").array().notNull().default([]),
+    // NOT NULL + default '' so (name, owner) is a real unique key (NULLs aren't
+    // distinct-equal in a unique index → wouldn't dedupe the find-or-create race).
+    owner: text("owner").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    nameOwnerUnique: uniqueIndex("brands_name_owner_unique").on(t.name, t.owner),
+  }),
+);
 
 export const competitors = pgTable("competitors", {
   id: uuid("id").primaryKey().defaultRandom(),
