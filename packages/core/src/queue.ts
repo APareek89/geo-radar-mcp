@@ -3,7 +3,9 @@ import type { MeasureShareOfVoiceInput, MeasureShareOfVoiceOutput } from "@geo-r
 import type { GeoStore } from "@geo-radar/db";
 import { InProcessPanelRunner, type PanelRunner, type RunnerOptions } from "./runner";
 
-export const PANEL_QUEUE_NAME = "geo-radar:panel-runs";
+// BullMQ 5 forbids ":" in queue names (it's the Redis key separator) — a colon here
+// crashes the worker on boot with "Queue name cannot contain :". Use a hyphen.
+export const PANEL_QUEUE_NAME = "geo-radar-panel-runs";
 
 function connection(redisUrl: string): ConnectionOptions {
   // BullMQ requires maxRetriesPerRequest: null on the blocking connection.
