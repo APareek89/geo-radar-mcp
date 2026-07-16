@@ -1,258 +1,200 @@
-# GetCited — build prompt (feed this to a fresh Claude Code session)
+# GetCited — build prompt (separate project; reuses geo-radar-mcp as reference)
 
-> How to use: start a new session with
-> **"Refer to Handoff.MD in /Users/anandpareek/Documents/Projects/geo-radar-mcp and begin,
-> then read docs/GETCITED-BUILD-PROMPT.md and build Phase 1."**
-> Work **one phase at a time**, keep `pnpm typecheck && pnpm test && pnpm build` green, commit to the
-> **private** repo after each phase (do NOT publish or make public), and update Handoff.MD.
+> **Where to run:** start a fresh Claude Code session **in a NEW folder**
+> `/Users/anandpareek/Documents/Projects/GetCited`. Reference the existing project at
+> `/Users/anandpareek/Documents/Projects/geo-radar-mcp` (read-only) to **port + adapt** its proven code and to
+> copy env-var *names/values*. Do NOT edit geo-radar-mcp. Work **one phase at a time**, keep the build green,
+> commit to a **new PRIVATE** repo, and keep a `HANDOFF.md` in GetCited updated.
 
----
-
-## 0. What we're building & why
-
-**GetCited** is the product face of the existing GEO Radar MCP. It measures whether AI assistants
-(ChatGPT, Perplexity, Claude, Google AI Overviews) recommend and cite a brand, **and — the actual value —
-turns that into a costed, committed action plan and tracks progress against it.**
-
-It has **two modes**:
-- **We Serve** — we run everything on our keys/infra; the user just configures + uses the assistant.
-- **Self Serve** — the user brings their own API keys (or self-hosts), so our marginal cost ≈ hosting only.
-
-**Reuse, don't rebuild:** the measurement pipeline, scoring, stores, and MCP tools already exist in
-`packages/core`, `packages/db`, `packages/shared`, `apps/mcp-server`. GetCited is a **new Next.js app
-(`apps/web`)** plus a handful of **new GEO capabilities** (tools) added to `packages/core` and exposed both
-as MCP tools and inside the web "Agent Mode".
+> **Kickoff line to paste:** "Create a new project in /Users/anandpareek/Documents/Projects/GetCited following
+> docs/GETCITED-BUILD-PROMPT.md (copied from the geo-radar-mcp repo). Read the reference project at
+> /Users/anandpareek/Documents/Projects/geo-radar-mcp to port the GEO pipeline. Build Phase 1. Keep it private."
 
 ---
 
-## 1. Tech decisions (made for you — don't re-litigate)
+## 0. Vision
 
-| Concern | Decision | Why |
+**GetCited** tells a brand whether AI assistants recommend/cite them, **and turns that into a costed, committed
+action plan** — "you have $400 and 2 people; here's exactly where to spend it (paid blog, a YouTube mention, 3
+comparison pages…), and if you do it all you'll go from 5% → ~22% AI citation share in ~8 weeks." The plan and
+its target are **grounded in how competitors are actually cited** (we crawl and categorize their citations),
+not vibes.
+
+Two modes: **We Serve** (our keys/infra) and **Self Serve** (user brings keys / self-hosts).
+
+---
+
+## 1. Reuse map — port these FROM geo-radar-mcp (read them, adapt into GetCited `lib/geo/`)
+
+The measurement engine is proven; port the logic (adapt for per-user keys + Supabase, drop the MCP-server bits):
+| From geo-radar-mcp | Into GetCited | Notes |
 |---|---|---|
-| Web app | **Next.js (App Router) + TypeScript** in `apps/web`, deploy on **Vercel** | user asked for Vercel; SSR + API routes + streaming chat |
-| UI kit | **Tailwind CSS + shadcn/ui + Framer Motion + lucide-react** | fast, polished, accessible; "awesome UI/UX" |
-| Charts | **Recharts** (or visx) | SoV bars, trend lines |
-| DB | **Supabase Postgres** — point the existing `DATABASE_URL`/Drizzle at it; keep `packages/db` as the schema owner | Supabase IS Postgres, so DrizzleStore already works; add new tables via Drizzle migrations |
-| Web auth (users) | **Supabase Auth** (email + Google) | separate from the MCP OAuth; gives a stable `user_id` to key config/plans/keys |
-| Agent (Agent Mode) | **Vercel AI SDK** (`ai`) streaming chat, tool-calling into `@geo-radar/core` | reuse the pipeline as tools; Claude is the model |
-| Reports | server-side **HTML → PDF** (e.g. Playwright/`@react-pdf`), **Excel** (`exceljs`), **interactive HTML** | user picks format |
-| Secrets (BYOK) | see §7 — session keys (browser-held, sent per request, never stored) OR opt-in encrypted storage | user's stated preference |
-| Scraping | a `web_fetch`/scrape capability (start with `fetch` + readability; upgrade to a scraper API later) | needed for competitor cited pages + progress verification |
+| `packages/core/src/{panelist,parser,providers,models,scoring,cost,prompt-library,analysis}.ts` | `lib/geo/*` | the panel pipeline (real-if-key-else-mock) — **make provider keys a per-call param, not process.env** |
+| `packages/core/src/{compare,report,errors}.ts` | `lib/geo/*` | scoring/report helpers |
+| `packages/shared/src/schemas/*` | `lib/geo/schemas/*` | Zod I/O shapes |
+| `packages/db/src/schema.ts` | `lib/db/schema.ts` | Drizzle tables → run on **Supabase Postgres** |
+| `.env` values | `.env.local` | copy the *values* you have: `ANTHROPIC_API_KEY`, `PERPLEXITY_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `PANEL_COST_CAP_USD_PER_RUN` |
 
-**Keep the monorepo.** Add `apps/web`. Do NOT fork the MCP server — the website talks to the same
-`@geo-radar/core` logic directly (server-side) and can also point users at the hosted `/mcp`.
+**Do not port:** `apps/mcp-server`, `apps/worker`, the MCP OAuth/transport, Render/GCP config. GetCited is a
+web app; it calls the ported pipeline directly (server-side). (Optionally expose an MCP endpoint later.)
 
 ---
 
-## 2. Must-have vs optional APIs (with the "?" tooltip copy for the UI)
+## 2. Tech stack (decided — don't re-litigate)
 
-Every key field in the UI gets a **"?" tooltip** explaining *why*. Use this copy:
+- **Next.js (App Router, TS) on Vercel** · **Tailwind + shadcn/ui + Framer Motion + lucide-react** · **Recharts**.
+- **Supabase** = Postgres (via Drizzle) + **Auth** (email + Google) + **Storage** (generated reports). **No GCP.**
+- **Vercel AI SDK (`ai`)** for the Agent-Mode streaming chat with tool-calls into `lib/geo`.
+- **Crawler: Firecrawl** (LLM-ready crawl/scrape, has a free tier) with a plain `fetch`+readability fallback.
+- Reports: **HTML (interactive)** always; **PDF** via `@react-pdf` or Playwright; **Excel** via `exceljs`.
+
+---
+
+## 3. APIs — must-have vs optional (each field in the UI gets a "?" tooltip; copy below)
 
 **Must-have (v1):**
-- **Anthropic (Claude)** — *"Powers the GEO assistant, the answer parser, and the action-plan writer. Required."*
+- **Anthropic (Claude)** — *"Runs the assistant, parses AI answers, and writes the action plan. Required."*
+- **Supabase** — *"Auth + stores your config, plans, crawl evidence, and reports so trends and progress work."*
 
 **Strongly recommended:**
-- **Perplexity** — *"Adds a real, web-grounded AI-search panelist with real citations — far more trustworthy than a model guessing from memory."*
-- **Supabase** — *"Stores your config, plans, and progress so trends and 'how am I doing vs the plan' work."* (we-serve: ours; self-serve: theirs)
+- **Perplexity** — *"A real, web-grounded AI-search panelist that returns the actual pages AI cites — the evidence the plan is built on."*
+- **Firecrawl** — *"Crawls competitors' cited pages and your backlinks so the plan is grounded in where citations really come from."*
 
-**Optional panelists (more coverage, cheap/free tiers):**
-- **Gemini** — *"A free-tier Google panelist — widens the AI panel we sample."*
-- **Groq (Llama)** — *"A fast, cheap open-model panelist for extra coverage."*
+**Optional — more coverage / better ROI math:**
+- **Gemini**, **Groq** — *"Extra AI panelists (free/cheap tiers) for wider share-of-voice coverage."*
+- **Google Search Console** (free) — *"Your real search queries + traffic; sharpens the query list and the traffic projection."*
+- **GA4** — *"Ties AI visibility to real sessions & conversions — the 'did it work' number."*
+- **YouTube Data API** (free quota) — *"Finds creators/videos already mentioning competitors, for the 'YouTube mention' tactic."*
+- **Ahrefs / Semrush** (premium, BYO) — *"Backlink/citation data at scale — who links to competitors — for a stronger evidence base."*
 
-**Optional data (ROI + accuracy):**
-- **GA4 (property id + service account)** — *"Ties AI visibility to real traffic & conversions — the 'did it actually work' number."*
-- **Google Search Console** — *"Real queries people search + your current traffic; grounds the query list and the ROI projection."* (free)
-
-Show a small **cost/impact chip** next to each ("~cents/audit", "free tier", "$$$") so users choose wisely.
-
----
-
-## 3. Information architecture
-
-```
-GetCited
-├── Landing page  → two big choices: [ We Serve ]   [ Self Serve ]
-├── (auth: Supabase login/signup)
-└── App shell (left nav)
-    ├── Configure          (We Serve: one screen · Self Serve: two sub-tabs)
-    ├── GEO Assistant       → [ MCP ]  |  [ Agent Mode ]
-    └── Dashboard
-```
+Show a **cost chip** on each (`~cents`, `free tier`, `$$$`) so users choose sensibly.
 
 ---
 
-## 4. WE SERVE
+## 4. THE CORE DIFFERENTIATOR — the budget→plan scoring engine (`lib/geo/plan.ts`)
 
-### 4A. Configure  (route `/app/configure`)
-State is **saved per user** and **versioned** — every change is recorded and **reconciled** so the GEO
-Assistant (4B) and the projections always use the latest config, and Track (card 4) can diff against the
-config/plan that was active when a plan was made.
+This is what makes it a product. Build it transparent and tunable.
 
-1. **Brand & competitors**
-   - `Brand website URL` (required), `Business/products description` (optional, textarea),
-     `Competitor URL` × **5 visible fields + a "＋ Add" button** (grow the list).
-   - A **"Suggest competitors"** button → calls the new `discover_competitors` capability (from the brand
-     URL + description) → user can accept/edit. (So a user who only has their own URL isn't stuck.)
-2. **Query Fetcher** — a **"Fetch queries"** button → generates the buyer-intent queries to test.
-   - **How:** default = Claude Haiku generates from the description + inferred category; **ground** it with
-     **Google Autocomplete/Suggest (free)** and, if a Perplexity key exists, real "people also ask". Return
-     ~15–25 queries. User can **edit / add / delete** each (inline chips or a table). Save the final set.
-3. **Budget & team**
-   - `Budget` (USD, number), `Team size` (humans available for GEO, count).
-   - Copy under it: *"We use this to size the action plan — what's realistically achievable, and by when."*
+**Step 1 — Evidence (crawl competitors' citations).** From the AI-answer citations (+ Perplexity + optional
+Ahrefs), collect the URLs that cite each competitor and **categorize each source**:
+`roundup/listicle · review-platform (G2/Capterra/ProductHunt) · editorial/news/PR · youtube · reddit/forum ·
+owned (comparison pages/blog/docs) · social`. Produce a **citation profile** per competitor (count per type).
 
-> On save, kick off (or offer) a **baseline benchmark** so the Dashboard has data. Persist:
-> config version, brand, competitors, queries, budget, team.
+**Step 2 — Gap.** Your citation profile vs the leader's → the biggest deficits (e.g. "0 roundups vs 8", "no
+review-site presence", "2 comparison pages vs 11").
 
-### 4B. GEO Assistant  (route `/app/assistant`)
-Landing with **two cards**: **MCP (Explore in your project)** and **Agent Mode**.
+**Step 3 — Tactic library** (ships with tunable defaults; each tactic = cost, effort in person-hours, lead
+time, and an evidence-weighted **citation-lift** toward specific source types):
 
-**4B-i. MCP page** (`/app/assistant/mcp`)
-- How to connect (copy-paste the hosted `https://<host>/mcp` URL + the Connect flow), the **tool list with
-  descriptions & example calls**, resources, prompts, and "what to ask". Basically the Connect page, richer.
+| Tactic | Cost (USD) | Effort (hrs) | Lead | Lifts |
+|---|---|---|---|---|
+| Sponsored/guest post on a niche blog | 150–400 | 4–8 | 2–4 wk | editorial |
+| Get into a "best X" roundup (outreach±paid) | 0–500 | 6–12 | 3–8 wk | roundup (high) |
+| G2/Capterra/ProductHunt profile + seed reviews | 0 (+incentives) | 10–20 | 2–6 wk | review (high, B2B) |
+| Sponsor a YouTube review/mention | 200–1000 | 3–6 | 2–4 wk | youtube |
+| Publish "X vs Y" comparison pages (per 3) | 0 (content) | 12–24 | 1–3 wk | owned (high) |
+| 10–15 genuine Reddit/community answers | 0 | 8–15 | ongoing | reddit |
+| Digital PR / HARO responses | 0–300 | 6–12 | 3–8 wk | editorial/news |
+| FAQ + Product schema + llms.txt on your pages | 0 | 4–8 | 1 wk | foundational multiplier |
 
-**4B-ii. Agent Mode** (`/app/assistant/agent`) — a **Claude-Code-style chat**:
-- **Prompt composer** with a **model selector** (v1: Claude models; later Groq/Gemini), streaming responses,
-  visible **tool-call cards** (show which GEO tool ran + a peek at results), and **downloadable artifacts**.
-- **Starter cards** (multi-select; user can pick several, or none). Renamed for clarity:
+**Step 4 — Capacity + allocation.** person-hours = `teamSize × timelineWeeks × ~25 productive hrs/wk`. Given
+`budget` and person-hours, run a **greedy knapsack**: pick tactics with the highest *citation-lift per
+(normalized cost + effort)*, **prioritized to fill the Step-2 gaps**, until budget or hours run out. Output the
+chosen tactic list with per-tactic cost/effort and *what gap it closes*.
 
-  | Card | Title (UI) | What it does | Output |
+**Step 5 — Target/projection (`projectImpact()`).** Sum the selected tactics' lift → projected new **citation
+share** → map to **traffic** (category search volume × position CTR; use GSC if connected, else stated
+assumptions) → **conversions** (× assumed CVR). Return
+`{ targetCitationShare, projectedTrafficUplift, projectedConversions, timelineWeeks, tactics[], assumptions[],
+confidence }`. **Confidence is `high` only when grounded by real data (GSC/Perplexity/Ahrefs); otherwise
+`medium/low`, and every assumption is listed.** Frame it as a **modeled projection, not a guarantee** (honest).
+
+**Worked example the engine should be able to produce** ($400, 2 people, 8 weeks ≈ 400 person-hrs):
+> Gaps: 0 roundups, no review presence, thin comparison pages. Plan: publish 3 "vs" pages (owned, ~60h), seed
+> G2+Capterra (~40h), 2 sponsored niche posts ($300, ~30h), 15 Reddit answers (~40h), schema+llms.txt (~20h),
+> 1 small YouTube mention ($100, ~15h). Spend $400, ~205h of 400. **Projected: citation share 5% → ~22% in
+> 8–10 wks; ≈ +N AI-referred sessions/mo; confidence medium (assumptions listed).**
+
+---
+
+## 5. Crawling (`lib/geo/crawl.ts`)
+- `crawlCitations(urls)` → for each cited/competitor/backlink URL: fetch readable content + classify the source
+  type (Step 1) + extract signals (does it mention you? the competitor? what claims?). Firecrawl first,
+  `fetch`+readability fallback. Cache results in Supabase (avoid re-crawling; respect robots + rate limits).
+- Used by: Diagnose (why competitors win), Plan (evidence), Track (verify backlinks/Reddit posts the user did).
+
+---
+
+## 6. Product surface (We Serve / Self Serve)
+
+**Left nav:** Configure · GEO Assistant · Dashboard. (Self Serve adds a **Configure Platform** sub-tab.)
+
+**Configure (versioned, saved per user, reconciled):** Brand URL, optional description, competitor URLs ×5 +
+"＋", a **"Suggest competitors"** button, a **"Fetch queries"** button (Claude-generated + Google-Suggest/
+Perplexity grounded; editable list), **Budget (USD)** and **Team size (count)**.
+
+**GEO Assistant → [ MCP ] | [ Agent Mode ]:**
+- **MCP page:** how to connect the (optional) MCP endpoint, tools, examples.
+- **Agent Mode:** Claude-Code-style streaming chat + **model selector** + visible **tool-call cards** +
+  downloadable **artifacts**. Four **starter cards** (multi-select; skippable — free-text still works):
+
+  | Card | Title | Does | Output |
   |---|---|---|---|
-  | 1 | **Where do I stand?** (Benchmark) | Run share-of-voice + citations + sentiment on the configured brand/competitors/queries | current standing |
-  | 2 | **Why am I here?** (Diagnose) | Explain the gaps: which competitors win on which queries, and which sources/pages get cited instead of you (scrape those pages) | gap analysis |
-  | 3 | **Where can I get to?** (Plan) | Turn the diagnosis + budget + team into a prioritized action plan **with a committed target** (expected citation/traffic/conversion uplift, timeline, assumptions & confidence) | action plan + projection → downloadable |
-  | 4 | **How am I progressing?** (Track) | Compare against the last plan; ask what's been done (or upload an updated plan); scrape evidence (backlinks, Reddit posts, new pages) → before/after impact + what's still pending | progress report |
+  | 1 | **Where do I stand?** (Benchmark) | SoV + citations + sentiment on the config | standing |
+  | 2 | **Why am I here?** (Diagnose) | crawl + categorize competitor citations; where/why they win | gap analysis |
+  | 3 | **Where can I get to?** (Plan) | §4 engine → costed plan + committed target | plan + projection → **PDF/Excel/HTML** |
+  | 4 | **How am I progressing?** (Track) | pull prior plan; ask what's done / upload update; crawl evidence (backlinks, Reddit) | before→after + impact + pending |
 
-- **Behaviour:**
-  - Skipping a card still works — the agent uses the same underlying tools driven by the user's free-text.
-  - Cards 1–3: user can **ask a question** or just hit **"Go"**. Any missing required input (e.g. no queries
-    yet) is **asked as a chat question**, not a dead-end.
-  - For **solution/plan output (card 3)**: after generating, ask **"How do you want it?" → PDF · Excel ·
-    interactive HTML**, then produce a **structured, downloadable report**. The plan **must** include a clearly
-    labeled **projected impact** (traffic/conversions if all steps are done) with **stated assumptions + a
-    confidence level** — framed as a *modeled projection, not a guarantee* (be honest; see §6).
-  - **Card 4 (Track):** the agent pulls the prior plan, asks the user to **upload the updated plan** or answers
-    questions ("how many backlinks did you get? which Reddit threads?"), **scrapes** the cited/backlink pages it
-    can reach, then reports **where they were → where they are, the impact of each action, and what's pending**.
+  Cards 1–3: user asks a question **or** hits **"Go"**; missing inputs are **asked as chat questions**. Plan
+  output asks **format** then generates a **structured, downloadable report** (with the projection + assumptions).
+  Card 4 diffs against the last plan and verifies via crawling.
 
-> MCP path uses the **same tools**; the only difference is Agent Mode **auto-shapes the output to the query**
-> and **asks for required inputs as questions**. Keep one tool layer; the web app is just a nicer driver.
+**Self Serve → Configure Platform** (three options, same as before):
+1. **Trust us (BYO keys):** model + key fields. Default **session keys** (browser localStorage, sent per
+   request, **never persisted**); explicit opt-in **"Store encrypted"** → AES-GCM in Supabase, never logged.
+2. **Own instance:** sharp Render/Vercel steps **+ one-click Deploy button** → provider → sign in → env page →
+   deploy → paste URL back.
+3. **Code base:** download-repo → GitHub → deploy steps + link.
 
-### 4C. Dashboard  (route `/app/dashboard`) — *(figured out for you)*
-A home for the user's GEO program:
-- **KPI cards:** current AI Share of Voice %, Citation share %, Sentiment score, Hallucinations flagged — each
-  with a 7/30-day delta.
-- **Trend chart:** SoV over time (you vs each competitor) from `sov_history`.
-- **Competitor leaderboard:** who leads on which queries.
-- **Active plan & progress:** the current action plan, % complete, projected vs actual uplift.
-- **Recent runs & downloads:** last benchmarks/reports with re-download.
-- **Config summary + alerts:** brand/competitors/budget/team at a glance; alert chips ("SoV dropped 12% this
-  week", "Competitor Z overtook you on 'best X'").
-- Empty state → guided "Run your first benchmark".
+**Dashboard:** KPI cards (SoV %, citation share %, sentiment, hallucinations, each w/ delta) · SoV trend chart ·
+competitor leaderboard · **active plan & % complete (projected vs actual)** · recent reports/downloads · config
+summary + alert chips · empty-state → "Run your first benchmark".
 
 ---
 
-## 5. SELF SERVE
-
-Identical to We Serve **except Configure has two sub-tabs**: **Configure Context** and **Configure Platform**.
-
-- **Configure Context** = the same fields as 4A (brand, competitors, query fetcher, budget, team).
-- **Configure Platform** = *how* their audits run. Three options (radio/cards):
-
-  **Option 1 — Trust us (managed, BYO keys).** Model selection + API-key fields (Claude required; Perplexity/
-  Gemini/Groq optional; each with the "?" tooltip from §2).
-  - **Key handling (make this explicit in the UI):** default = **session keys** — kept in the browser
-    (localStorage), sent per request, **never persisted server-side**, used transiently to run the audit.
-    A clearly-labeled **opt-in checkbox "Store my keys (encrypted)"** persists them **encrypted at rest** in
-    Supabase (AES-GCM; never logged) so they don't have to re-enter them. Explain the trade-off in one line.
-  **Option 2 — Own instance (one-click).** Sharp, step-by-step to deploy their own on **Render or Vercel**,
-    **plus a one-click "Deploy" button** (Render Deploy-to-Render / Vercel Deploy button) → they land on the
-    provider → sign in → env-vars page (pre-filled keys list with the "?" help) → deploy. Then they paste their
-    new URL back into GetCited to use it.
-  **Option 3 — Code base (DIY).** Detailed but sharp steps: download the repo (provide a link), push to their
-    GitHub, deploy. Link to `docs/HOSTING.md`.
-
-Persist which platform option is active per user so the assistant routes calls correctly (our keys vs theirs
-vs their instance URL).
+## 7. Data model (Drizzle on Supabase; enable **RLS** so users see only their rows)
+`profiles` (↔ Supabase `auth.users`) · `configs` (versioned: brand, description, competitors[], queries[],
+budget, team_size, mode, platform_option, instance_url?) · `api_keys` (encrypted, opt-in) · `runs`/`answers`/
+`sov_history`/`hallucinations` (ported) · `citations` (crawled evidence: url, source_type, cites_competitor,
+signals) · `plans` (tactics[] + projection JSON + config_version) · `progress_snapshots` · `reports` (format +
+Storage URL). Everything keyed by `user_id`.
 
 ---
 
-## 6. The projection / "committed target" (be honest)
-
-Card 3's headline promise ("if you do all this, you'll reach X traffic/conversions") must be a **modeled
-projection with visible assumptions and a confidence band — not a guarantee.** Build a small, transparent
-`projectImpact()` in `packages/core`:
-- Inputs: current SoV/citation gap, budget, team size, competitor cited-source difficulty, (optional) GSC/GA4
-  baselines.
-- Output: `{ targetCitationShare, projectedTrafficUplift, projectedConversions, timelineWeeks, assumptions[],
-  confidence: "low|medium|high" }`.
-- Always render the assumptions and confidence next to the number. In the report, add a one-line disclaimer.
-  This keeps it credible instead of snake-oil.
+## 8. UI/UX ("awesome")
+Dark, editorial, Linear/Vercel-clean. Tokens: bg `#0B0D10`, card `#14171C`, accent `#635BFF`, pos `#2FBF71`,
+warn `#E0A32E`, danger `#E5484D`, text `#E6E8EB`, muted `#8A9099`, Inter. rounded-2xl cards, subtle borders,
+Framer-Motion micro-interactions. **Landing:** hero "Get cited by AI. Know exactly what to do." + We Serve /
+Self Serve split + a live free **mock** audit. **Agent Mode** feels like Claude Code (streaming, tool-call
+cards, artifact chips, model picker, the 4 starter cards as a grid above the composer). Design every state
+(empty/loading-skeleton/running-with-progress/error/success). Responsive + accessible + dark by default.
 
 ---
 
-## 7. New capabilities to build (in `packages/core`, exposed as MCP tools + used by Agent Mode)
+## 9. Build in PHASES (each: green build + tests for new logic + commit to the private GetCited repo + HANDOFF.md)
+1. **Scaffold + reuse-port + Configure.** Next.js + Tailwind + shadcn; Supabase Auth + schema/migrations; port
+   `lib/geo` pipeline (per-user keys); landing + Configure (fields, ＋, budget, team) + `suggest_queries` +
+   `discover_competitors`.
+2. **GEO Assistant: Agent Mode chat + MCP page.** Vercel AI SDK streaming chat calling `lib/geo` tools; tool-call
+   cards; model selector.
+3. **Crawling + the scoring engine + cards + reports.** `crawl.ts`, `plan.ts` (§4) + `projectImpact()`,
+   `generate_report` (PDF/Excel/HTML); wire cards 1–4; Go/question; ask-for-format; the projection UI.
+4. **Self Serve: Configure Platform (3 options) + BYOK** (session vs encrypted-stored keys; one-click deploy).
+5. **Dashboard** (KPIs, trend, leaderboard, active plan/progress, alerts, downloads).
 
-Follow the existing tool pattern (schema in `packages/shared`, logic in `packages/core`, registration in
-`apps/mcp-server/src/tools`, a test, real-if-key-else-mock). Add:
-1. `suggest_queries(brand, description?, category?, count?)` → buyer-intent queries (Claude + Google Suggest/Perplexity grounding).
-2. `discover_competitors(brand, domain?, category?, max?)` → grounded competitor list.
-3. `build_action_plan(report_id, budget, teamSize, …)` → prioritized GEO plan + `projectImpact()` output.
-4. `track_progress(plan_id, evidence|answers)` → scrape backlinks/pages, diff vs plan, before/after + pending.
-5. `web_fetch(url)` / `scrape_page(url)` → readable text of a page (competitor cited pages, backlink verification).
-6. `generate_report(payload, format: pdf|xlsx|html)` → downloadable artifact (store in Supabase Storage).
-
-These make the "cards" real. Each is also a genuine MCP tool, so the MCP path and Agent Mode share one engine.
-
----
-
-## 8. Data model additions (Drizzle migrations on the Supabase Postgres)
-
-- `users` — from Supabase Auth (reference `auth.users` id).
-- `configs` — per user, **versioned**: brand_url, description, competitors[], queries[], budget, team_size,
-  mode (we_serve|self_serve), platform_option, instance_url?, created_at.
-- `api_keys` — per user, **encrypted**, opt-in (provider, ciphertext, created_at). Never returned in plaintext.
-- `plans` — generated action plans + projection JSON, linked to a config version + a report_id.
-- `progress_snapshots` — card-4 tracking events (what was done, scraped evidence, measured deltas).
-- `reports` — metadata + storage URL for generated PDF/Excel/HTML.
-Everything keyed by `user_id`. Enforce **row-level security** (Supabase RLS) so users only see their own rows.
-
----
-
-## 9. UI/UX direction ("awesome")
-
-- **Aesthetic:** dark, editorial, Linear/Vercel-clean. Reuse the existing tokens (bg `#0B0D10`, card `#14171C`,
-  accent indigo `#635BFF`, positive `#2FBF71`, warn `#E0A32E`, danger `#E5484D`, text `#E6E8EB`, muted
-  `#8A9099`, Inter). Generous spacing, rounded-2xl cards, subtle borders, soft shadows, micro-interactions
-  (Framer Motion) on cards/buttons/tool-call reveals.
-- **Landing:** bold hero ("Get cited by AI. Know exactly how."), a crisp **We Serve / Self Serve** split, a live
-  mini-demo (the free mock audit), social-proof/logos placeholder, and a "how it works" 3-step.
-- **App shell:** left nav (Configure · GEO Assistant · Dashboard), top bar (brand selector, account).
-- **Agent Mode:** feels like Claude Code — message stream, streaming tokens, **tool-call cards** (icon + tool
-  name + collapsible result), **artifact chips** (downloadable report), a model picker, and the 4 starter cards
-  as a dismissible grid above the composer.
-- **States:** design empty / loading (skeletons) / running (progress + which panelist) / error (which provider,
-  retry) / success for every screen.
-- Fully responsive; keyboard-accessible; dark by default (optional light later).
-
----
-
-## 10. Build in PHASES (each must stay green + committed to the private repo)
-
-- **Phase 1 — Scaffold + Configure (We Serve).** `apps/web` Next.js + Tailwind + shadcn; Supabase auth; landing
-  with We Serve/Self Serve; the Configure screen (fields, ＋, budget, team) persisting to Supabase; the DB
-  migrations (§8). Ship the `suggest_queries` + `discover_competitors` tools so Configure's buttons work.
-- **Phase 2 — GEO Assistant: MCP page + Agent Mode chat.** Streaming chat via Vercel AI SDK calling
-  `@geo-radar/core` tools; tool-call cards; model selector; the MCP how-to page.
-- **Phase 3 — The 4 cards + reports + projection.** `build_action_plan` + `projectImpact()` + `generate_report`
-  (PDF/Excel/HTML) + `track_progress` + `web_fetch`. Wire the cards; "Go" vs question; ask-for-format.
-- **Phase 4 — Self Serve: Configure Platform (3 options) + BYOK.** Session vs stored (encrypted) keys; one-click
-  deploy buttons; the DIY code-base steps; route audits to the right keys/instance.
-- **Phase 5 — Dashboard.** KPIs, trend, leaderboard, active plan/progress, alerts, downloads.
-
-## 11. Guardrails
-- Repo stays **PRIVATE**; commit to origin, do NOT publish/public. Loop stays OFF.
-- After each phase: `pnpm typecheck && pnpm test && pnpm build` green; add tests for new tools (mock mode,
-  offline); update `Handoff.MD` + `docs/mermaid`. Never log or expose API keys. Be honest about projections
-  (§6). Ask the user before any paid/live external call in a build step.
+## 10. Guardrails
+New repo **PRIVATE**; commit locally, don't publish/public. After each phase: build + typecheck + tests green;
+new logic (esp. `plan.ts` allocation + `projectImpact`) gets unit tests with mock inputs. **Never log/expose API
+keys.** Be **honest** about projections (modeled, assumptions listed, confidence band). Respect robots.txt + rate
+limits when crawling. Ask the user before any paid/live external call inside a build step.
 ```
