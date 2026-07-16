@@ -98,11 +98,14 @@ export async function verifyAccessToken(token: string): Promise<AuthInfo> {
   const jwks = getJwks();
   if (!jwks) throw new Error("OAuth issuer not configured");
   const aud0 = audienceUrl();
-  // Accept the resource with or without a trailing slash — IdPs (Auth0) differ on
-  // whether the `aud` they emit for a resource indicator keeps the slash.
+  const iss0 = issuerUrl();
+  // Accept issuer AND audience with or without a trailing slash. IdPs differ:
+  // WorkOS's iss has no slash, Auth0's iss is `https://tenant.auth0.com/` (WITH
+  // slash) — and we normalize env vars to no-slash, so match both forms.
   const acceptedAudience = aud0 ? [aud0, `${aud0}/`] : undefined;
+  const acceptedIssuer = iss0 ? [iss0, `${iss0}/`] : undefined;
   const { payload } = await jwtVerify(token, await jwks, {
-    issuer: issuerUrl(),
+    issuer: acceptedIssuer,
     audience: acceptedAudience, // undefined → not checked
   });
   const claims = payload as Record<string, unknown>;
