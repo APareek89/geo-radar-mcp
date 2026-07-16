@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
     startCommand: node apps/mcp-server/dist/index.js
     healthCheckPath: /healthz
     autoDeploy: true
@@ -52,7 +52,7 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
     startCommand: node apps/worker/dist/index.js
     envVars:
       - key: DATABASE_URL
