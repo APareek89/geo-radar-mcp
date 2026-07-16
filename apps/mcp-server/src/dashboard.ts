@@ -1,13 +1,36 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { SERVER_VERSION } from "@geo-radar/shared";
 import {
   InProcessPanelRunner,
   buildReport,
   computeCitations,
   computeSentiment,
+  logger,
   type AnalysisAnswer,
 } from "@geo-radar/core";
+import { authConfigured, requireAuth } from "./auth";
 import type { ServerRuntime } from "./runtime";
+
+/**
+ * Guards the dashboard's `/api/*` routes. Open by default so the hosted demo works
+ * in a browser; set `DASHBOARD_PUBLIC=false` for production to require the same
+ * bearer auth as `/mcp` (MCP_API_KEY or an OAuth JWT). If it's set to false but no
+ * auth is configured, we fail closed rather than silently stay open.
+ */
+export function dashboardApiGuard(req: Request, res: Response, next: NextFunction): void {
+  if (process.env.DASHBOARD_PUBLIC !== "false") {
+    next();
+    return;
+  }
+  if (!authConfigured()) {
+    res.status(503).json({
+      error:
+        "Dashboard API is private (DASHBOARD_PUBLIC=false) but no auth is configured — set MCP_API_KEY or OAUTH_ISSUER.",
+    });
+    return;
+  }
+  void requireAuth(req, res, next);
+}
 
 /**
  * Companion dashboard (P9) — a polished single-page app served by the HTTP tier,
@@ -18,6 +41,12 @@ import type { ServerRuntime } from "./runtime";
 export function registerDashboard(app: Express, runtime: ServerRuntime): void {
   const { store } = runtime;
   const demoRunner = new InProcessPanelRunner(store, { costCapUsd: 1, forceMock: true });
+
+  // Gate all /api/* routes (mounted before them so it runs first).
+  app.use("/api", dashboardApiGuard);
+  logger.info("dashboard api", {
+    access: process.env.DASHBOARD_PUBLIC === "false" ? "private (auth required)" : "public (demo)",
+  });
 
   const toAnalysis = (answers: { prompt: string; rawAnswer: string; citedDomains: string[]; sentiment: AnalysisAnswer["sentiment"] }[]): AnalysisAnswer[] =>
     answers.map((a) => ({ prompt: a.prompt, rawAnswer: a.rawAnswer, citedDomains: a.citedDomains, sentiment: a.sentiment }));
