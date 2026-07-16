@@ -97,9 +97,13 @@ function bearer(req: Request): string {
 export async function verifyAccessToken(token: string): Promise<AuthInfo> {
   const jwks = getJwks();
   if (!jwks) throw new Error("OAuth issuer not configured");
+  const aud0 = audienceUrl();
+  // Accept the resource with or without a trailing slash — IdPs (Auth0) differ on
+  // whether the `aud` they emit for a resource indicator keeps the slash.
+  const acceptedAudience = aud0 ? [aud0, `${aud0}/`] : undefined;
   const { payload } = await jwtVerify(token, await jwks, {
     issuer: issuerUrl(),
-    audience: audienceUrl(), // undefined → not checked
+    audience: acceptedAudience, // undefined → not checked
   });
   const claims = payload as Record<string, unknown>;
   const scopes =
