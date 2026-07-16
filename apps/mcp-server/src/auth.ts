@@ -23,6 +23,19 @@ function issuerUrl(): string | undefined {
   return withScheme.replace(/\/+$/, "");
 }
 
+/**
+ * Normalize OAUTH_AUDIENCE (our resource indicator). A trailing slash here is a
+ * silent flow-breaker: it becomes the `resource` param Claude sends to WorkOS and
+ * the `aud` we later require, and both must match the resource indicator registered
+ * in WorkOS *byte-for-byte*. We strip a trailing slash so `https://host/` and
+ * `https://host` can never disagree.
+ */
+function audienceUrl(): string | undefined {
+  const raw = process.env.OAUTH_AUDIENCE?.trim();
+  if (!raw) return undefined;
+  return raw.replace(/\/+$/, "");
+}
+
 let jwksPromise: Promise<JWTVerifyGetKey> | null = null;
 
 async function discoverJwksUri(issuer: string): Promise<string> {
@@ -56,11 +69,15 @@ export function authConfigured(): boolean {
 
 export function protectedResourceMetadata(resourceUrl: string): Record<string, unknown> {
   const issuer = issuerUrl();
+  // Shape matches WorkOS's documented AuthKit-MCP example exactly. We deliberately
+  // do NOT advertise `scopes_supported` — WorkOS AuthKit only grants openid/profile/
+  // email/offline_access, so advertising a custom "mcp" scope made Claude request a
+  // scope the AS can't grant, breaking the authorize step (the "code/state: Field
+  // required" callback failure). Clients read grantable scopes from the AS metadata.
   return {
-    resource: process.env.OAUTH_AUDIENCE ?? resourceUrl,
+    resource: audienceUrl() ?? resourceUrl,
     authorization_servers: issuer ? [issuer] : [],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["mcp"],
   };
 }
 
@@ -93,7 +110,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     try {
       await jwtVerify(token, await jwks, {
         issuer: issuerUrl(),
-        audience: process.env.OAUTH_AUDIENCE, // undefined → not checked
+        audience: audienceUrl(), // undefined → not checked
       });
       next();
       return;
@@ -111,7 +128,7 @@ function unauthorized(req: Request, res: Response, detail: string): void {
     .status(401)
     .set(
       "WWW-Authenticate",
-      `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+      `Bearer realm="MCP", resource_metadata="${base}/.well-known/oauth-protected-resource"`,
     )
     .json({ jsonrpc: "2.0", error: { code: -32001, message: `Unauthorized: ${detail}` }, id: null });
 }
