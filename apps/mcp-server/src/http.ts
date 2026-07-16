@@ -6,6 +6,7 @@ import { createServer } from "./server";
 import { registerDashboard } from "./dashboard";
 import { requireAuth, protectedResourceMetadata } from "./auth";
 import { createOAuthProxyRouter } from "./oauth-proxy";
+import { createSelfHostedOAuthRouter, selfHostedLoginGate } from "./self-oauth";
 import type { ServerRuntime } from "./runtime";
 
 /**
@@ -28,12 +29,18 @@ export function startHttpServer(runtime: ServerRuntime, port: number): void {
     res.json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION });
   });
 
-  // OAuth: either PROXY mode (we are the same-origin authorization server, forwarding
-  // to WorkOS — the flow the claude.ai web connector handles) or resource-server-only
-  // delegation (advertise WorkOS directly). Flip with OAUTH_MODE=proxy.
-  const oauthProxy = createOAuthProxyRouter();
-  if (oauthProxy) {
-    // Serves /authorize, /token, /register AND both well-known metadata docs.
+  // OAuth topology (all same-origin AS variants serve /authorize|/token|/register +
+  // both well-known metadata docs):
+  //   selfhosted — we ARE the AS, no third party (free); Basic-auth login gate.
+  //   proxy      — same-origin AS forwarding to WorkOS.
+  //   (default)  — resource-server-only: advertise the external AS directly.
+  const selfOauth = createSelfHostedOAuthRouter();
+  const oauthProxy = selfOauth ? null : createOAuthProxyRouter();
+  if (selfOauth) {
+    app.use("/authorize", selfHostedLoginGate); // gate login before the AS handler
+    app.use(selfOauth);
+    logger.info("oauth: self-hosted mode (this server is the authorization server)");
+  } else if (oauthProxy) {
     app.use(oauthProxy);
     logger.info("oauth: proxy mode (same-origin AS → WorkOS)");
   } else {

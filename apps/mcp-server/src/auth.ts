@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import { verifySelfIssuedToken } from "./self-oauth";
 
 /**
  * Auth for the HTTP transport (this server is an OAuth **resource server**).
@@ -66,7 +67,7 @@ function getJwks(): Promise<JWTVerifyGetKey> | null {
 }
 
 export function authConfigured(): boolean {
-  return Boolean(process.env.MCP_API_KEY || issuerUrl());
+  return Boolean(process.env.MCP_API_KEY || issuerUrl() || process.env.OAUTH_MODE === "selfhosted");
 }
 
 export function protectedResourceMetadata(resourceUrl: string): Record<string, unknown> {
@@ -140,15 +141,21 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  // 2. Delegated OAuth — verify the JWT (signature vs JWKS, iss/exp/aud).
-  if (issuerUrl()) {
-    try {
+  // 2. OAuth JWT. Self-hosted mode verifies our own HS256 token; otherwise verify a
+  //    delegated token against the issuer's JWKS (iss/exp/aud).
+  try {
+    if (process.env.OAUTH_MODE === "selfhosted") {
+      await verifySelfIssuedToken(token);
+      next();
+      return;
+    }
+    if (issuerUrl()) {
       await verifyAccessToken(token);
       next();
       return;
-    } catch {
-      /* fall through to 401 */
     }
+  } catch {
+    /* fall through to 401 */
   }
 
   unauthorized(req, res, "invalid token");

@@ -91,12 +91,20 @@ return {allowed, retry}
 
 class RedisTokenBucketLimiter implements ProviderRateLimiter {
   private readonly redis: Redis;
+  private loggedConnError = false;
   constructor(
     redisUrl: string,
     private readonly cfg: TokenBucketConfig,
     private readonly maxWaitMs: number,
   ) {
     this.redis = new Redis(redisUrl, { maxRetriesPerRequest: null, lazyConnect: false });
+    // Attach an error listener so ioredis doesn't emit "Unhandled error event"; log
+    // once (acquire() already fails open, so a Redis outage never blocks work).
+    this.redis.on("error", (err: Error) => {
+      if (this.loggedConnError) return;
+      this.loggedConnError = true;
+      logger.warn("rate-limit: redis connection error (failing open)", { err: err.message });
+    });
   }
 
   async acquire(provider: string): Promise<void> {
