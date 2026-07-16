@@ -39,8 +39,14 @@ WorkOS serves everything else (`/oauth2/authorize|token|jwks|register` + auth-se
 
 > Prefer your **GCP Cloud SQL** over Render Postgres? Delete the `databases:` block from `render.yaml` and set `DATABASE_URL` to your Cloud SQL connection string instead (keep Redis on Render, or use Upstash).
 
+## 3b. OAuth topology: delegation vs proxy (`OAUTH_MODE`)
+Two ways this server speaks OAuth to Claude:
+
+- **Delegation (default).** We advertise WorkOS *directly* as the authorization server (`authorization_servers: [<AuthKit domain>]`). Claude discovers + registers + authorizes against WorkOS's own domain. **The claude.ai web/Desktop connector mishandles this cross-origin flow — it drops the `state` param and fails with `state: Field required`.** (The **Claude Code CLI** path works.) WorkOS itself is fine — proven by curl: its `/oauth2/authorize` 302s and preserves `state`.
+- **Proxy (`OAUTH_MODE=proxy`, recommended for the web connector).** This server becomes the **same-origin authorization server** Claude talks to, forwarding `/authorize`, `/token`, `/register` to WorkOS underneath (via the MCP SDK's `ProxyOAuthServerProvider` + `mcpAuthRouter`). Claude now runs the ordinary DCR-against-the-MCP-server flow — the path it handles correctly (same topology as servers that connect successfully, e.g. `mcp.pixelbin.io`, which advertises itself as its own `authorization_server`). WorkOS still does the real login/identity. Set `OAUTH_MODE=proxy` in Render (keep `OAUTH_ISSUER`=AuthKit domain, `OAUTH_AUDIENCE`=your Render URL **without a trailing slash**), redeploy. Verify: `curl https://<svc>.onrender.com/.well-known/oauth-authorization-server` should show `authorization_endpoint`/`token_endpoint`/`registration_endpoint` on **your** domain, and `.../.well-known/oauth-protected-resource` should list **your** URL in `authorization_servers`.
+
 ## 4. Add it to Claude
-Claude Desktop → **Settings → Connectors → Add custom connector** → URL: `https://<your-service>.onrender.com/mcp` → **Connect** → the WorkOS login opens → sign in → done. The 8 tools appear.
+Claude Desktop → **Settings → Connectors → Add custom connector** → URL: `https://<your-service>.onrender.com/mcp` → **Connect** → the WorkOS login opens → sign in → done. The 8 tools appear. (If Connect fails with `state: Field required`, you're on delegation mode — set `OAUTH_MODE=proxy` per §3b, or connect via Claude Code CLI: `claude mcp add --transport http <url>/mcp`.)
 
 ## Verify auth locally (without WorkOS)
 ```bash

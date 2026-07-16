@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 
 /**
  * Auth for the HTTP transport (this server is an OAuth **resource server**).
@@ -15,8 +16,9 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
  * discover the authorization server and start the login flow.
  */
 
-/** Normalize OAUTH_ISSUER: ensure an https:// scheme and no trailing slash. */
-function issuerUrl(): string | undefined {
+/** Normalize OAUTH_ISSUER (the UPSTREAM authorization server, e.g. WorkOS AuthKit):
+ *  ensure an https:// scheme and no trailing slash. */
+export function issuerUrl(): string | undefined {
   const raw = process.env.OAUTH_ISSUER?.trim();
   if (!raw) return undefined;
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
@@ -30,7 +32,7 @@ function issuerUrl(): string | undefined {
  * in WorkOS *byte-for-byte*. We strip a trailing slash so `https://host/` and
  * `https://host` can never disagree.
  */
-function audienceUrl(): string | undefined {
+export function audienceUrl(): string | undefined {
   const raw = process.env.OAUTH_AUDIENCE?.trim();
   if (!raw) return undefined;
   return raw.replace(/\/+$/, "");
@@ -86,6 +88,40 @@ function bearer(req: Request): string {
   return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
 }
 
+/**
+ * Verify a delegated-OAuth JWT (signature vs the issuer's JWKS, `iss`, `exp`, `aud`)
+ * and map its claims to the MCP SDK's `AuthInfo`. Reused by both the `/mcp` bearer
+ * check and the OAuth-proxy provider so there's a single verification path.
+ */
+export async function verifyAccessToken(token: string): Promise<AuthInfo> {
+  const jwks = getJwks();
+  if (!jwks) throw new Error("OAuth issuer not configured");
+  const { payload } = await jwtVerify(token, await jwks, {
+    issuer: issuerUrl(),
+    audience: audienceUrl(), // undefined → not checked
+  });
+  const claims = payload as Record<string, unknown>;
+  const scopes =
+    typeof claims.scope === "string"
+      ? claims.scope.split(" ").filter(Boolean)
+      : Array.isArray(claims.scp)
+        ? (claims.scp as string[])
+        : [];
+  const aud = audienceUrl();
+  return {
+    token,
+    clientId:
+      (claims.azp as string | undefined) ??
+      (claims.client_id as string | undefined) ??
+      (claims.sub as string | undefined) ??
+      "unknown",
+    scopes,
+    expiresAt: typeof payload.exp === "number" ? payload.exp : undefined,
+    resource: aud ? new URL(aud) : undefined,
+    extra: { sub: payload.sub },
+  };
+}
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!authConfigured()) {
     next();
@@ -104,14 +140,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  // 2. Delegated OAuth — verify the JWT's signature against the issuer's JWKS.
-  const jwks = getJwks();
-  if (jwks) {
+  // 2. Delegated OAuth — verify the JWT (signature vs JWKS, iss/exp/aud).
+  if (issuerUrl()) {
     try {
-      await jwtVerify(token, await jwks, {
-        issuer: issuerUrl(),
-        audience: audienceUrl(), // undefined → not checked
-      });
+      await verifyAccessToken(token);
       next();
       return;
     } catch {

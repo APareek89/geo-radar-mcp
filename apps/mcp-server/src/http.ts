@@ -4,6 +4,7 @@ import { SERVER_NAME, SERVER_VERSION } from "@geo-radar/shared";
 import { createServer } from "./server";
 import { registerDashboard } from "./dashboard";
 import { requireAuth, protectedResourceMetadata } from "./auth";
+import { createOAuthProxyRouter } from "./oauth-proxy";
 import type { ServerRuntime } from "./runtime";
 
 /**
@@ -13,9 +14,12 @@ import type { ServerRuntime } from "./runtime";
  */
 export function startHttpServer(runtime: ServerRuntime, port: number): void {
   const app = express();
-  // Behind Render/any TLS-terminating proxy, trust X-Forwarded-* so req.protocol
-  // is "https" — the OAuth metadata + resource URLs must be https or clients reject them.
-  app.set("trust proxy", true);
+  // Behind Render/any TLS-terminating proxy, trust X-Forwarded-* so req.protocol is
+  // "https" — the OAuth metadata + resource URLs must be https or clients reject them.
+  // Use a finite hop count (1 = Render's single reverse proxy), NOT `true`: a permissive
+  // `true` makes express-rate-limit throw ERR_ERL_PERMISSIVE_TRUST_PROXY and silently
+  // disables the rate limiting the SDK puts on the public /authorize|/token|/register.
+  app.set("trust proxy", 1);
   app.use(express.json({ limit: "1mb" }));
 
   // Health check (no auth) — Render/LB probe target.
@@ -23,10 +27,20 @@ export function startHttpServer(runtime: ServerRuntime, port: number): void {
     res.json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION });
   });
 
-  // RFC 9728 protected-resource metadata (auth-server discovery).
-  app.get("/.well-known/oauth-protected-resource", (req: Request, res: Response) => {
-    res.json(protectedResourceMetadata(`${req.protocol}://${req.get("host")}`));
-  });
+  // OAuth: either PROXY mode (we are the same-origin authorization server, forwarding
+  // to WorkOS — the flow the claude.ai web connector handles) or resource-server-only
+  // delegation (advertise WorkOS directly). Flip with OAUTH_MODE=proxy.
+  const oauthProxy = createOAuthProxyRouter();
+  if (oauthProxy) {
+    // Serves /authorize, /token, /register AND both well-known metadata docs.
+    app.use(oauthProxy);
+    process.stderr.write(`[${SERVER_NAME}] OAuth: proxy mode (same-origin AS → WorkOS)\n`);
+  } else {
+    // RFC 9728 protected-resource metadata (points clients off to the external AS).
+    app.get("/.well-known/oauth-protected-resource", (req: Request, res: Response) => {
+      res.json(protectedResourceMetadata(`${req.protocol}://${req.get("host")}`));
+    });
+  }
 
   // Companion dashboard (P9) + its read/demo JSON API.
   registerDashboard(app, runtime);
