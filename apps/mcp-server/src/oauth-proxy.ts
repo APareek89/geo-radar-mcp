@@ -19,9 +19,11 @@ async function discoverUpstreamEndpoints(issuer: string): Promise<ProxyEndpoints
     tokenUrl: `${issuer}/oauth2/token`,
     registrationUrl: `${issuer}/oauth2/register`,
   };
-  try {
-    const res = await fetch(`${issuer}/.well-known/oauth-authorization-server`);
-    if (res.ok) {
+  // Try RFC 8414 first, then OIDC discovery (Auth0 & most OIDC IdPs serve the latter).
+  for (const path of ["/.well-known/oauth-authorization-server", "/.well-known/openid-configuration"]) {
+    try {
+      const res = await fetch(`${issuer}${path}`);
+      if (!res.ok) continue;
       const m = (await res.json()) as {
         authorization_endpoint?: string;
         token_endpoint?: string;
@@ -34,9 +36,9 @@ async function discoverUpstreamEndpoints(issuer: string): Promise<ProxyEndpoints
           registrationUrl: m.registration_endpoint ?? fallback.registrationUrl,
         };
       }
+    } catch {
+      /* try next path / fall back */
     }
-  } catch {
-    /* use fallback */
   }
   return fallback;
 }
