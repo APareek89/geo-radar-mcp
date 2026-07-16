@@ -1,0 +1,90 @@
+# Render blueprint — stateless MCP web tier + panel worker + Postgres + Redis.
+# Scale the web tier by instance count; add workers to track more brands/prompts.
+services:
+  - type: web
+    name: geo-radar-mcp
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: node apps/mcp-server/dist/index.js
+    healthCheckPath: /healthz
+    autoDeploy: true
+    scaling:
+      minInstances: 1
+      maxInstances: 3
+      targetCPUPercent: 70
+    envVars:
+      - key: MCP_TRANSPORT
+        value: http
+      - key: PORT
+        value: "8080"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: geo-radar-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: geo-radar-redis
+          property: connectionString
+      - key: MCP_API_KEY
+        generateValue: true # simple bearer token (admin/back-channel)
+      # Delegated OAuth (WorkOS AuthKit) — lets users "Connect & log in" from Claude.
+      - key: OAUTH_ISSUER
+        sync: false # your AuthKit domain, e.g. https://your-app.authkit.app
+      - key: OAUTH_AUDIENCE
+        sync: false # your public MCP URL, e.g. https://geo-radar-mcp.onrender.com
+      - key: PANEL_COST_CAP_USD_PER_RUN
+        value: "1.00"
+      - key: ANTHROPIC_API_KEY
+        sync: false # set in the Render dashboard (secret)
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+
+  # Panel worker (P6) — processes queued panel runs from Redis/BullMQ.
+  - type: worker
+    name: geo-radar-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: node apps/worker/dist/index.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: geo-radar-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: geo-radar-redis
+          property: connectionString
+      - key: PANEL_COST_CAP_USD_PER_RUN
+        value: "1.00"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+
+  - type: keyvalue
+    name: geo-radar-redis
+    plan: starter
+    region: oregon
+    maxmemoryPolicy: noeviction # queue jobs must not be evicted
+    ipAllowList: [] # only internal Render services
+
+databases:
+  - name: geo-radar-db
+    plan: basic-256mb
+    region: oregon
+    databaseName: geo_radar
+    user: geo

@@ -1,0 +1,35 @@
+# Local dev infra: Postgres (SoV time-series) + Redis (queue/cache/rate-limit).
+# Start with:  docker compose up -d
+# The default DATABASE_URL / REDIS_URL in .env.example point here.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: geo
+      POSTGRES_PASSWORD: geo
+      POSTGRES_DB: geo_radar
+    ports:
+      - "5432:5432"
+    volumes:
+      - geo_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geo -d geo_radar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - geo_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  geo_pg:
+  geo_redis:

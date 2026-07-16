@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.json",
+  "name": "io.github.anandpareek/geo-radar-mcp",
+  "description": "Measure your brand's AI share-of-voice, citations, sentiment, and hallucinations across a panel of LLMs (Claude, Gemini, Groq, Perplexity).",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/anandpareek/geo-radar-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@geo-radar/mcp-server",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic key — Haiku panelist + parser/scorer (required).",
+          "isRequired": true,
+          "isSecret": true
+        },
+        { "name": "GEMINI_API_KEY", "description": "Gemini panelist (optional).", "isSecret": true },
+        { "name": "GROQ_API_KEY", "description": "Groq panelist (optional).", "isSecret": true },
+        { "name": "PERPLEXITY_API_KEY", "description": "Perplexity panelist (optional).", "isSecret": true },
+        { "name": "DATABASE_URL", "description": "Postgres for SoV history. Omit or use GEO_STORE=memory for ephemeral." },
+        { "name": "GEO_STORE", "description": "Set to 'memory' to run without a database." }
+      ]
+    }
+  ]
+}

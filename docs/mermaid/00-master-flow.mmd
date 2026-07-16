@@ -1,0 +1,51 @@
+flowchart TD
+  %% GEO Radar MCP — MASTER FLOW (request routing)
+  %% Legend: [AGENT]=an LLM decides · [FUNCTION]=deterministic code ·
+  %%         [LIBRARY]=external lib · [DATA]=store. Panel pipeline detail: diagram 01.
+  %% All phases P1-P12 built (except the eval loop). Live-pending: Redis (queue), GA4 creds, non-Haiku keys.
+
+  client["MCP client · Claude Desktop/Code<br/>[FUNCTION]<br/>in: user asks for GEO metrics<br/>out: MCP JSON-RPC call"]:::term
+  transport["Transport<br/>[LIBRARY · @modelcontextprotocol/sdk]<br/>stdio (local) | streamable-HTTP (remote)"]:::data
+
+  authgate{"HTTP only: authenticated?<br/>[FUNCTION · auth.ts]<br/>bearer API key OR OAuth JWT (JWKS verify)"}:::dec
+  unauth["401 + WWW-Authenticate<br/>[FUNCTION]<br/>resource_metadata (RFC 9728)"]:::term
+
+  validate["Validate input<br/>[FUNCTION · zod schema from packages/shared]<br/>in: raw args · out: typed args | error"]:::fn
+  primitive{"Which MCP primitive?<br/>[FUNCTION · server.ts]"}:::dec
+
+  %% ---- Resources + Prompts ----
+  resource["Read resource<br/>[FUNCTION/DATA]<br/>prompts://library · brand://config<br/>reports://{id} · history://sov{?brand,range}"]:::data
+  prompt["Return guided workflow<br/>[FUNCTION]<br/>run_full_geo_audit · draft_reputation_defense_brief · weekly_sov_report"]:::term
+
+  %% ---- Tools ----
+  toolrouter{"Which tool?<br/>[FUNCTION]"}:::dec
+  ping["ping<br/>[FUNCTION]<br/>out: health/echo"]:::term
+  fresh["measure_share_of_voice / compare_to_competitor<br/>[FUNCTION]<br/>runs a fresh panel — SEE DIAGRAM 01<br/>out: report_id + summary"]:::fn
+  loadrep["Load stored report by report_id<br/>[DATA · Postgres | memory]<br/>out: answers + mentions + citations + sentiment"]:::data
+  analyze["Analyze stored answers<br/>[FUNCTION · scoring/analysis]<br/>track_citations · sentiment_scan · get_report"]:::fn
+  factcheck["detect_hallucinations<br/>[AGENT · Haiku · fact-check vs facts]<br/>out: flagged claims + severity"]:::agent
+  ga4["attribute_ai_traffic<br/>[LIBRARY · GA4 Data API]<br/>out: sessions/conversions from AI engines"]:::data
+  result["Structured result to client<br/>[FUNCTION]"]:::term
+
+  %% ---- Dashboard (HTTP /) ----
+  dash["Companion dashboard · GET /<br/>[FUNCTION · dashboard.ts]<br/>Overview/Citations/Competitors/Connect<br/>+ read/demo API → same store"]:::term
+
+  client --> transport --> authgate
+  authgate -->|"no"| unauth
+  authgate -->|"yes / stdio (no auth)"| validate --> primitive
+  primitive -->|"resource"| resource --> result
+  primitive -->|"prompt"| prompt
+  primitive -->|"tool"| toolrouter
+  toolrouter -->|"ping"| ping
+  toolrouter -->|"measure / compare"| fresh --> result
+  toolrouter -->|"track_citations / sentiment_scan / get_report"| loadrep --> analyze --> result
+  toolrouter -->|"detect_hallucinations"| loadrep --> factcheck --> result
+  toolrouter -->|"attribute_ai_traffic"| ga4 --> result
+  transport -.->|"browser"| dash
+
+  classDef agent fill:#dbeafe,stroke:#2563eb,color:#0b2a5b;
+  classDef fn fill:#dcfce7,stroke:#16a34a,color:#052e16;
+  classDef dec fill:#f3e8ff,stroke:#9333ea,color:#2a0a4a;
+  classDef term fill:#e5e7eb,stroke:#6b7280,color:#111827;
+  classDef ask fill:#cffafe,stroke:#0891b2,color:#083344;
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#2a0a4a;

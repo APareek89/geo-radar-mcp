@@ -1,0 +1,26 @@
+{
+  "name": "geo-radar-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GEO Radar MCP — measure whether ChatGPT, Perplexity, Claude and Google AI Overviews recommend, cite, and speak well of your brand.",
+  "type": "module",
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "dev:mcp": "pnpm --filter @geo-radar/mcp-server dev",
+    "start:mcp": "pnpm --filter @geo-radar/mcp-server start",
+    "db:migrate": "pnpm --filter @geo-radar/db db:migrate",
+    "db:seed": "pnpm --filter @geo-radar/mcp-server seed",
+    "diagrams:validate": "node scripts/validate-mmd.mjs docs/mermaid",
+    "diagrams:build": "node scripts/build-html.mjs docs/mermaid docs/architecture-flow.html"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "turbo": "^2.3.3"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "geo-radar": {
+      "command": "node",
+      "args": ["apps/mcp-server/dist/index.js"],
+      "env": { "GEO_STORE": "memory" }
+    }
+  }
+}

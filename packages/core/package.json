@@ -1,0 +1,35 @@
+{
+  "name": "@geo-radar/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.15",
+    "@ai-sdk/google": "^4.0.17",
+    "@ai-sdk/groq": "^4.0.11",
+    "@ai-sdk/perplexity": "^4.0.11",
+    "@geo-radar/db": "workspace:*",
+    "@geo-radar/shared": "workspace:*",
+    "@google-analytics/data": "^4.7.0",
+    "ai": "^7.0.28",
+    "bullmq": "^5.34.0",
+    "ioredis": "^5.4.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  }
+}

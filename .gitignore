@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+*.log
+.env
+.env.local
+.env.*.local
+.DS_Store
+
+# Generated diagram viewer (regenerate with `pnpm diagrams:build`)
+docs/architecture-flow.html
