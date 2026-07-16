@@ -37,7 +37,7 @@ export function buildRuntime(): ServerRuntime {
   // pipeline in the worker, which builds its own limiter there.
   const runner: PanelRunner =
     process.env.PANEL_RUNNER === "queue" && process.env.REDIS_URL
-      ? new QueuePanelRunner(process.env.REDIS_URL)
+      ? new QueuePanelRunner(process.env.REDIS_URL, store)
       : new InProcessPanelRunner(store, { costCapUsd, rateLimiter: createProviderRateLimiter() });
 
   return { store, runner };

@@ -83,13 +83,18 @@ export type PerPromptEntry = z.infer<typeof PerPromptEntrySchema>;
 export const MeasureShareOfVoiceOutputSchema = z.object({
   report_id: z.string().describe("Handle to retrieve the full report via get_report."),
   brand: z.string(),
-  status: z.literal("completed"),
+  status: z
+    .enum(["queued", "completed"])
+    .describe(
+      "\"completed\" (in-process run, results below) or \"queued\" (a worker is running it; " +
+        "poll get_report(report_id) until status is completed).",
+    ),
   panel: z.array(z.string()),
   prompt_count: z.number(),
   answer_count: z.number(),
   share_of_voice: z.array(ShareOfVoiceEntrySchema),
   per_prompt: z.array(PerPromptEntrySchema),
-  cost_usd: z.number().describe("Estimated USD spent on the panel run."),
+  cost_usd: z.number().describe("Estimated USD spent on the panel run (0 while queued)."),
   created_at: z.string(),
 });
 export type MeasureShareOfVoiceOutput = z.infer<typeof MeasureShareOfVoiceOutputSchema>;

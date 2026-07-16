@@ -49,5 +49,5 @@ export {
 } from "./fact-check";
 export { compareToCompetitor } from "./compare";
 export { runHallucinationCheck } from "./hallucinations";
-export { QueuePanelRunner, startPanelWorker, PANEL_QUEUE_NAME } from "./queue";
+export { QueuePanelRunner, startPanelWorker, PANEL_QUEUE_NAME, type PanelJobData } from "./queue";
 export { attributeAiTraffic } from "./ga4";

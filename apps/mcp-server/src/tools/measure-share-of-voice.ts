@@ -42,6 +42,13 @@ export function registerMeasureShareOfVoiceTool(server: McpServer, runner: Panel
 }
 
 function summarize(report: MeasureShareOfVoiceOutput): string {
+  if (report.status === "queued") {
+    return (
+      `Report ${report.report_id} — ${report.brand} · status=queued\n` +
+      `Panel: ${report.panel.join(", ")} over ${report.prompt_count} prompts is running on a worker.\n` +
+      `Poll get_report("${report.report_id}") until status is "completed".`
+    );
+  }
   const lines = report.share_of_voice
     .slice()
     .sort((a, b) => b.sov - a.sov)

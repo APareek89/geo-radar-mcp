@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
+import type { MeasureShareOfVoiceInput } from "@geo-radar/shared";
 import { MemoryStore } from "@geo-radar/db";
-import { InProcessPanelRunner } from "./runner";
+import { InProcessPanelRunner, planRun, beginRunParams } from "./runner";
 import { buildReport } from "./report";
 import { PanelRunError } from "./errors";
 
@@ -101,5 +102,53 @@ describe("InProcessPanelRunner (mock pipeline)", () => {
     });
     expect(report.prompt_count).toBe(4);
     expect(report.answer_count).toBe(4);
+  });
+
+  // Fire-and-forget: the queue path pre-creates the run row, then the worker finishes
+  // THAT run rather than beginning a new one. Simulate it with the existingRun arg.
+  it("finishes a pre-created run instead of beginning a new one (existingRun)", async () => {
+    const store = new MemoryStore();
+    const runner = new InProcessPanelRunner(store, { costCapUsd: 1, forceMock: true });
+    const input: MeasureShareOfVoiceInput = {
+      brand: "PixelBin",
+      competitors: ["Photoroom"],
+      prompts: ["x"],
+      panel: ["haiku"],
+    };
+
+    // Web tier pre-creates the run row and hands the client this id (measure returns
+    // status "queued"; the row itself is non-terminal until the worker completes it).
+    const { panel } = planRun(input);
+    const pre = await store.beginRun(beginRunParams(input, panel));
+    const pending = await buildReport(store, pre.runId);
+    expect(pending?.status).not.toBe("completed");
+
+    // Worker finishes the SAME run.
+    const report = await runner.run(input, pre);
+    expect(report.report_id).toBe(pre.runId);
+    expect(report.status).toBe("completed");
+
+    const finished = await buildReport(store, pre.runId);
+    expect(finished?.status).toBe("completed");
+    expect(finished?.answers).toHaveLength(1);
+  });
+});
+
+describe("planRun", () => {
+  it("returns resolved prompts/panel/runs for a valid input", () => {
+    const input: MeasureShareOfVoiceInput = {
+      brand: "A",
+      competitors: ["B"],
+      prompts: ["x", "y"],
+      panel: ["haiku"],
+      runs: 2,
+    };
+    expect(planRun(input)).toEqual({ prompts: ["x", "y"], panel: ["haiku"], runs: 2 });
+  });
+
+  it("defaults the panel to [haiku] and throws on an oversized workload", () => {
+    expect(planRun({ brand: "A", competitors: ["B"], prompts: ["x"] }).panel).toEqual(["haiku"]);
+    const prompts = Array.from({ length: 300 }, (_, i) => `p${i}`);
+    expect(() => planRun({ brand: "A", competitors: ["B"], prompts })).toThrow(PanelRunError);
   });
 });

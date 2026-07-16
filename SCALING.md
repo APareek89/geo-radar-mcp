@@ -28,7 +28,7 @@ MCP clients ──(stdio | streamable-HTTP)──▶ MCP WEB TIER (stateless, N 
 
 ## Why the queue
 
-Panel runs are the **bursty, slow** work (many LLM calls per run). Today the runner is in-process (`InProcessPanelRunner`); it sits behind a `PanelRunner` interface so P6 swaps in a BullMQ producer on the web tier and a consumer in `apps/worker` **without changing any tool contract**. `measure_share_of_voice` already returns a `report_id` and the client polls `get_report` — the async pattern is in place.
+Panel runs are the **bursty, slow** work (many LLM calls per run). The runner sits behind a `PanelRunner` interface: `InProcessPanelRunner` runs synchronously (default), and `QueuePanelRunner` (`PANEL_RUNNER=queue` + `REDIS_URL`) is a **fire-and-forget** BullMQ producer — it validates the request, creates the run row, enqueues the job, and returns `{ status: "queued", report_id }` **immediately** (no blocking on the multi-minute run). A worker in `apps/worker` finishes that same run row; the client polls `get_report(report_id)` until `status` is `completed`/`failed`. Both runners return the identical output shape, so the tool contract is unchanged.
 
 ## Reliability knobs (P6)
 

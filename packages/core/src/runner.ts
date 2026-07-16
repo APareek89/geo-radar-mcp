@@ -4,7 +4,7 @@ import type {
   PanelistId,
   Sentiment,
 } from "@geo-radar/shared";
-import type { GeoStore, PersistedAnswer } from "@geo-radar/db";
+import type { BeginRunParams, BeginRunResult, GeoStore, PersistedAnswer } from "@geo-radar/db";
 import {
   PANELIST_MODELS,
   REAL_CALL_COST_ESTIMATE_USD,
@@ -33,6 +33,69 @@ export interface PanelRunner {
   run(input: MeasureShareOfVoiceInput): Promise<MeasureShareOfVoiceOutput>;
 }
 
+/** A validated run plan (prompts/panel resolved, workload ceiling checked). */
+export interface RunPlan {
+  prompts: string[];
+  panel: string[];
+  runs: number;
+}
+
+/**
+ * Resolve + validate prompts, panel, and the workload ceiling. Shared by the
+ * in-process runner and the queue runner (which validates before enqueuing so a
+ * bad request fails fast instead of dying in a worker). Throws `PanelRunError`.
+ */
+export function planRun(input: MeasureShareOfVoiceInput): RunPlan {
+  const prompts = resolvePrompts(input);
+  const panel = resolvePanel(input);
+  const runs = input.runs ?? 1;
+  const panelistCalls = prompts.length * runs * panel.length;
+  if (panelistCalls > MAX_PANELIST_CALLS) {
+    throw new PanelRunError(
+      `Workload too large: ${prompts.length} prompts × ${runs} runs × ${panel.length} panelists ` +
+        `= ${panelistCalls} calls (max ${MAX_PANELIST_CALLS}). Reduce prompts, runs, or panel.`,
+      "workload_too_large",
+    );
+  }
+  return { prompts, panel, runs };
+}
+
+/** Build the store `beginRun` params for an input + resolved panel. */
+export function beginRunParams(input: MeasureShareOfVoiceInput, panel: string[]): BeginRunParams {
+  return {
+    brand: { name: input.brand, domains: input.brand_domains, owner: null },
+    competitors: input.competitors.map((name) => ({ name })),
+    promptSetId: input.prompt_set_id ?? null,
+    panel,
+  };
+}
+
+function resolvePrompts(input: MeasureShareOfVoiceInput): string[] {
+  if (input.prompts && input.prompts.length > 0) return input.prompts;
+  if (input.prompt_set_id) {
+    const set = resolvePromptSet(input.prompt_set_id);
+    if (!set) {
+      throw new PanelRunError(
+        `Unknown prompt_set_id "${input.prompt_set_id}". Built-in sets: demo.`,
+        "no_prompts",
+      );
+    }
+    return set.prompts;
+  }
+  throw new PanelRunError("No prompts provided (need `prompts` or `prompt_set_id`).", "no_prompts");
+}
+
+function resolvePanel(input: MeasureShareOfVoiceInput): string[] {
+  const panel = input.panel && input.panel.length > 0 ? input.panel : ["haiku"];
+  const valid = Object.keys(PANELIST_MODELS);
+  for (const id of panel) {
+    if (!valid.includes(id)) {
+      throw new PanelRunError(`Unknown panelist "${id}". Available: ${valid.join(", ")}.`, "unknown_panelist");
+    }
+  }
+  return panel;
+}
+
 export interface RunnerOptions {
   costCapUsd: number;
   /** Force the deterministic mock pipeline (tests). Otherwise inferred from ANTHROPIC_API_KEY. */
@@ -54,33 +117,23 @@ export class InProcessPanelRunner implements PanelRunner {
     private readonly opts: RunnerOptions,
   ) {}
 
-  async run(input: MeasureShareOfVoiceInput): Promise<MeasureShareOfVoiceOutput> {
-    const prompts = this.resolvePrompts(input);
-    const panel = this.resolvePanel(input);
-    const runs = input.runs ?? 1;
-
-    // Hard workload ceiling (FMEA P0: unbounded panel size). Even under the cost
-    // cap, a huge prompts×runs×panel product would run for a very long time.
-    const panelistCalls = prompts.length * runs * panel.length;
-    if (panelistCalls > MAX_PANELIST_CALLS) {
-      throw new PanelRunError(
-        `Workload too large: ${prompts.length} prompts × ${runs} runs × ${panel.length} panelists ` +
-          `= ${panelistCalls} calls (max ${MAX_PANELIST_CALLS}). Reduce prompts, runs, or panel.`,
-        "workload_too_large",
-      );
-    }
+  /**
+   * Run the panel. When `existingRun` is provided (the queue path, where the run row
+   * was already created so the caller could return a report_id immediately), we
+   * finish that run instead of beginning a new one.
+   */
+  async run(
+    input: MeasureShareOfVoiceInput,
+    existingRun?: BeginRunResult,
+  ): Promise<MeasureShareOfVoiceOutput> {
+    const { prompts, panel, runs } = planRun(input);
     const forceMock = this.opts.forceMock ?? false;
     // A panelist runs for real only if forced-mock is off AND its provider key exists.
     const isMock = (id: string): boolean => forceMock || !hasPanelistKey(id as PanelistId);
     const parserMock = forceMock || !hasAnthropicKey();
     const anyRealCall = panel.some((id) => !isMock(id)) || !parserMock;
 
-    const { runId, brandId } = await this.store.beginRun({
-      brand: { name: input.brand, domains: input.brand_domains, owner: null },
-      competitors: input.competitors.map((name) => ({ name })),
-      promptSetId: input.prompt_set_id ?? null,
-      panel,
-    });
+    const { runId, brandId } = existingRun ?? (await this.store.beginRun(beginRunParams(input, panel)));
 
     try {
       const panelists = panel.map((id) =>
@@ -165,35 +218,6 @@ export class InProcessPanelRunner implements PanelRunner {
       if (err instanceof PanelRunError) throw err;
       throw new PanelRunError(message, "provider_error");
     }
-  }
-
-  private resolvePrompts(input: MeasureShareOfVoiceInput): string[] {
-    if (input.prompts && input.prompts.length > 0) return input.prompts;
-    if (input.prompt_set_id) {
-      const set = resolvePromptSet(input.prompt_set_id);
-      if (!set) {
-        throw new PanelRunError(
-          `Unknown prompt_set_id "${input.prompt_set_id}". Built-in sets: demo.`,
-          "no_prompts",
-        );
-      }
-      return set.prompts;
-    }
-    throw new PanelRunError("No prompts provided (need `prompts` or `prompt_set_id`).", "no_prompts");
-  }
-
-  private resolvePanel(input: MeasureShareOfVoiceInput): string[] {
-    const panel = input.panel && input.panel.length > 0 ? input.panel : ["haiku"];
-    const valid = Object.keys(PANELIST_MODELS);
-    for (const id of panel) {
-      if (!valid.includes(id)) {
-        throw new PanelRunError(
-          `Unknown panelist "${id}". Available: ${valid.join(", ")}.`,
-          "unknown_panelist",
-        );
-      }
-    }
-    return panel;
   }
 
   private async callPanelist(panelist: Panelist, prompt: string) {
